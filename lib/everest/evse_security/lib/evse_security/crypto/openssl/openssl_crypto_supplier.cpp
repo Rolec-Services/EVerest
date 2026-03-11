@@ -24,6 +24,10 @@
 #include <evse_security/crypto/openssl/openssl_types.hpp>
 #include <evse_security/utils/evse_filesystem.hpp>
 
+#ifdef USING_CUSTOM_PROVIDER
+#include <evse_security/crypto/openssl/openssl_pkcs11_helper.hpp>
+#endif
+
 namespace evse_security {
 
 namespace {
@@ -132,6 +136,69 @@ bool s_generate_key(const KeyGenerationInfo& key_info, KeyHandle_ptr& out_key, E
     bool bEC = true;
 
     OpenSSLProvider provider;
+
+#ifdef USING_CUSTOM_PROVIDER
+    if (key_info.generate_on_custom) {
+        // Derive key label from filename
+        std::string key_label =
+            key_info.private_key_file.has_value() ? key_info.private_key_file.value().stem().string() : "generated_key";
+
+        // Generate key in HSM
+        auto uri_opt = PKCS11Helper::generate_key_in_hsm(key_info.key_type, key_label);
+        if (!uri_opt.has_value()) {
+            EVLOG_error << "Failed to generate key in PKCS#11 HSM";
+            return false;
+        }
+
+        // Write PKCS#11 URI to PEM file
+        if (key_info.private_key_file.has_value()) {
+            if (!PKCS11Helper::write_pkcs11_uri_pem_file(uri_opt.value(), key_info.private_key_file.value())) {
+                EVLOG_error << "Failed to write PKCS#11 URI PEM file";
+                return false;
+            }
+        }
+
+        // Set provider to custom mode before loading
+        provider.set_global_mode(OpenSSLProvider::mode_t::custom_provider);
+
+        // Load the key back from the PKCS#11 URI PEM file
+        // OpenSSL will transparently handle the PKCS#11 URI
+        if (key_info.private_key_file.has_value()) {
+            const BIO_ptr key_bio(BIO_new_file(key_info.private_key_file.value().c_str(), "r"));
+            if (!key_bio) {
+                EVLOG_error << "Failed to open PKCS#11 URI PEM file for reading";
+                return false;
+            }
+
+            EVP_PKEY* pkey = PEM_read_bio_PrivateKey(key_bio.get(), nullptr, nullptr, nullptr);
+            if (!pkey) {
+                EVLOG_error << "Failed to load private key from PKCS#11 URI";
+                ERR_print_errors_fp(stderr);
+                return false;
+            }
+
+            auto evp_key = EVP_PKEY_ptr(pkey);
+
+            // Export public key if requested
+            if (key_info.public_key_file.has_value()) {
+                const BIO_ptr pub_bio(BIO_new_file(key_info.public_key_file.value().c_str(), "w"));
+                if (!pub_bio || 0 == PEM_write_bio_PUBKEY(pub_bio.get(), evp_key.get())) {
+                    EVLOG_error << "Failed to write public key!";
+                    return false;
+                }
+            }
+
+            // Return the key handle
+            EVP_PKEY* raw_key_handle = evp_key.release();
+            out_key = std::make_unique<KeyHandleOpenSSL>(raw_key_handle);
+        }
+
+        return true;
+    }
+    // generate_on_custom is false: fall through to standard OpenSSL key generation below
+#endif
+
+    // Standard OpenSSL key generation (software)
     if (key_info.generate_on_custom) {
         provider.set_global_mode(OpenSSLProvider::mode_t::custom_provider);
     } else {

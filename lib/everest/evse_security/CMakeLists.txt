@@ -31,7 +31,7 @@ if(USING_TPM2)
 endif()
 
 if(USING_CUSTOM_PROVIDER)
-    set(CUSTOM_PROVIDER_NAME "custom_provider")
+    set(CUSTOM_PROVIDER_NAME "pkcs11")
 endif()
 
 if(USING_TPM2 OR USING_CUSTOM_PROVIDER)

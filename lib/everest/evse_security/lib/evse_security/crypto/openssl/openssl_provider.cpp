@@ -8,6 +8,7 @@
 
 #if USING_CUSTOM_PROVIDER
 // OpenSSL3 without TPM will use the default provider anyway
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/provider.h>
@@ -126,6 +127,9 @@ OpenSSLProvider::OpenSSLProvider() {
             s_tls_libctx_p = OSSL_LIB_CTX_new();
             if (s_tls_libctx_p == nullptr) {
                 EVLOG_error << "Unable to create OpenSSL library context";
+                ERR_print_errors_fp(stderr);
+            } else if (OSSL_LIB_CTX_load_config(s_tls_libctx_p, nullptr) != 1) {
+                EVLOG_error << "Unable to load OpenSSL config into TLS library context";
                 ERR_print_errors_fp(stderr);
             }
         }

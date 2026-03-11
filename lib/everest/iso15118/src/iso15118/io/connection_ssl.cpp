@@ -20,6 +20,8 @@
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 
+#include <evse_security/crypto/openssl/openssl_provider.hpp>
+
 #include <iso15118/detail/helper.hpp>
 #include <iso15118/detail/io/helper_ssl.hpp>
 #include <iso15118/detail/io/socket_helper.hpp>
@@ -223,8 +225,9 @@ SSL_CTX* init_ssl(const config::SSLConfig& ssl_config) {
     static constexpr auto TLS1_2_CIPHERSUITES = "ECDHE-ECDSA-AES128-SHA256";
     static constexpr auto TLS1_3_CIPHERSUITES = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256";
 
+    evse_security::OpenSSLProvider provider;
     const SSL_METHOD* method = TLS_server_method();
-    const auto ctx = SSL_CTX_new(method);
+    const auto ctx = SSL_CTX_new_ex(provider, provider.propquery_default(), method);
 
     if (ctx == nullptr) {
         log_and_raise_openssl_error("Failed in SSL_CTX_new()");

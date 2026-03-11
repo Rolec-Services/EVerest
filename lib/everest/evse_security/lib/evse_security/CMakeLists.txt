@@ -22,6 +22,8 @@ if (LIBEVSE_CRYPTO_SUPPLIER_OPENSSL)
         PRIVATE
             crypto/openssl/openssl_crypto_supplier.cpp
             crypto/openssl/openssl_provider.cpp
+            crypto/openssl/openssl_pkcs11_helper.cpp
+            crypto/openssl/openssl_asn1_der.cpp
     )
 endif()
 
