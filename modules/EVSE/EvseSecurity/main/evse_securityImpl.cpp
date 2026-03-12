@@ -4,6 +4,8 @@
 #include "evse_securityImpl.hpp"
 #include <everest/conversions/evse_security/conversions.hpp>
 
+#include <evse_security/crypto/openssl/openssl_pkcs11_helper.hpp>
+
 namespace module {
 namespace main {
 
@@ -25,6 +27,13 @@ void evse_securityImpl::init() {
     }
 
     this->evse_security = std::make_unique<evse_security::EvseSecurity>(file_paths, private_key_password);
+
+    evse_security::PKCS11Config pkcs11_config;
+    pkcs11_config.module_path = this->mod->config.pkcs11_module_path;
+    pkcs11_config.slot = this->mod->config.pkcs11_slot;
+    pkcs11_config.token = this->mod->config.pkcs11_token;
+    pkcs11_config.pin = this->mod->config.pkcs11_pin;
+    evse_security::PKCS11Helper::set_config(pkcs11_config);
 }
 
 void evse_securityImpl::ready() {

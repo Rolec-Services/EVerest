@@ -29,6 +29,10 @@ struct Conf {
     std::string secc_leaf_cert_directory;
     std::string secc_leaf_key_directory;
     std::string private_key_password;
+    std::string pkcs11_module_path;
+    std::string pkcs11_token;
+    int pkcs11_slot;
+    std::string pkcs11_pin;
 };
 
 class EvseSecurity : public Everest::ModuleBase {

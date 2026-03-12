@@ -38,6 +38,22 @@ config:
     description: Password for encrypted private keys.
     type: string
     default: ""
+  pkcs11_module_path:
+    description: Path to the PKCS#11 module library for HSM access.
+    type: string
+    default: /usr/lib/libckteec.so.0
+  pkcs11_token:
+    description: PKCS#11 token name for HSM operations.
+    type: string
+    default: test-token
+  pkcs11_slot:
+    description: PKCS#11 slot number.
+    type: integer
+    default: 0
+  pkcs11_pin:
+    description: PKCS#11 token PIN for HSM access.
+    type: string
+    default: "0000"
 provides:
   main:
     description: Implementation of the evse_security interface

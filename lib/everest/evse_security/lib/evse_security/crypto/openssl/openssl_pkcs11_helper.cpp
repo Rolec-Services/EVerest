@@ -3,6 +3,21 @@
 
 #include <evse_security/crypto/openssl/openssl_pkcs11_helper.hpp>
 
+namespace evse_security {
+
+// Static member definition
+PKCS11Config PKCS11Helper::s_config;
+
+void PKCS11Helper::set_config(const PKCS11Config& config) {
+    s_config = config;
+}
+
+const PKCS11Config& PKCS11Helper::get_config() {
+    return s_config;
+}
+
+} // namespace evse_security
+
 #ifdef USING_CUSTOM_PROVIDER
 
 #include <evse_security/crypto/openssl/openssl_asn1_der.hpp>
@@ -51,8 +66,8 @@ std::string PKCS11Helper::generate_key_id(const std::string& key_label) {
     return oss.str();
 }
 
-std::optional<std::string> PKCS11Helper::generate_key_in_hsm(CryptoKeyType key_type, const std::string& key_label,
-                                                             const PKCS11Config& config) {
+std::optional<std::string> PKCS11Helper::generate_key_in_hsm(CryptoKeyType key_type, const std::string& key_label) {
+    const auto& config = s_config;
     EVLOG_info << "Generating PKCS#11 key in HSM: " << key_label;
 
     // Map key type to pkcs11-tool parameters
