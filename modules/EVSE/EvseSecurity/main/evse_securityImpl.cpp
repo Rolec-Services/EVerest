@@ -26,7 +26,15 @@ void evse_securityImpl::init() {
         private_key_password = this->mod->config.private_key_password;
     }
 
-    this->evse_security = std::make_unique<evse_security::EvseSecurity>(file_paths, private_key_password);
+    // Configure certificate store limits
+    std::optional<std::uintmax_t> max_fs_usage_bytes = std::nullopt; // No filesystem size limit
+    std::optional<std::uintmax_t> max_certificate_entries = std::nullopt;
+    if (this->mod->config.max_certificate_entries > 0) {
+        max_certificate_entries = static_cast<std::uintmax_t>(this->mod->config.max_certificate_entries);
+    }
+
+    this->evse_security = std::make_unique<evse_security::EvseSecurity>(file_paths, private_key_password,
+                                                                        max_fs_usage_bytes, max_certificate_entries);
 
     evse_security::PKCS11Config pkcs11_config;
     pkcs11_config.module_path = this->mod->config.pkcs11_module_path;

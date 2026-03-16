@@ -43,14 +43,45 @@ public:
     ///
     /// @param key_type The type of key to generate (EC, RSA, etc.)
     /// @param key_label The label to assign to the key in the HSM
+    /// @param libctx Optional OpenSSL library context to use. If provided, the pkcs11 provider
+    ///               from this context is used for key generation. If nullptr, an internal
+    ///               isolated context is created and destroyed within this call.
     /// @return PKCS#11 URI string if successful, std::nullopt on failure
-    static std::optional<std::string> generate_key_in_hsm(CryptoKeyType key_type, const std::string& key_label);
+    static std::optional<std::string> generate_key_in_hsm(CryptoKeyType key_type, const std::string& key_label,
+                                                          void* libctx = nullptr);
 
     /// @brief Write a PKCS#11 URI to a PEM file in the special format
     /// @param pkcs11_uri The PKCS#11 URI to encode
     /// @param output_file Path to the output PEM file
     /// @return true if successful, false on failure
     static bool write_pkcs11_uri_pem_file(const std::string& pkcs11_uri, const fs::path& output_file);
+
+    /// @brief Delete a key pair from the HSM by label
+    ///
+    /// Uses the PKCS#11 C API (via dlopen of the configured module) to find
+    /// and destroy both the private and public key objects with the given label.
+    ///
+    /// @param key_label The label of the key to delete (the 'object=' value from the PKCS#11 URI)
+    /// @return true if the key was found and deleted (or didn't exist), false on error
+    static bool delete_key_from_hsm(const std::string& key_label);
+
+    /// @brief Extract the key label from a .tkey PEM file
+    ///
+    /// Reads the PKCS#11 URI PEM file, decodes the ASN.1 structure, and extracts
+    /// the 'object=' parameter (key label) from the embedded PKCS#11 URI.
+    ///
+    /// @param tkey_path Path to the .tkey PEM file
+    /// @return The key label if successfully extracted, std::nullopt on failure
+    static std::optional<std::string> extract_label_from_tkey_file(const fs::path& tkey_path);
+
+    /// @brief Delete an HSM key associated with a .tkey file
+    ///
+    /// Convenience method that extracts the label from a .tkey file and deletes
+    /// the corresponding key from the HSM. Safe to call on non-.tkey files (returns true).
+    ///
+    /// @param key_path Path to the key file (only acts on .tkey files)
+    /// @return true if successful or not a .tkey file, false on HSM deletion error
+    static bool delete_hsm_key_if_tkey(const fs::path& key_path);
 
 private:
     static PKCS11Config s_config;

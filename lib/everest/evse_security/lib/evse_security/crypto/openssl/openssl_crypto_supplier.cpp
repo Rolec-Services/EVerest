@@ -18,6 +18,8 @@
 #include <openssl/opensslv.h>
 #include <openssl/pem.h>
 #include <openssl/sha.h>
+#include <openssl/provider.h>
+#include <openssl/store.h>
 #include <openssl/x509v3.h>
 
 #include <evse_security/crypto/openssl/openssl_provider.hpp>
@@ -139,59 +141,122 @@ bool s_generate_key(const KeyGenerationInfo& key_info, KeyHandle_ptr& out_key, E
 
 #ifdef USING_CUSTOM_PROVIDER
     if (key_info.generate_on_custom) {
+        // We use a single dedicated OSSL_LIB_CTX for all PKCS#11 operations (key generation
+        // and key loading). This is necessary because:
+        //
+        //   1. The default context's pkcs11 provider has cached read-only TLS sessions, causing
+        //      session conflicts for both key generation and key loading.
+        //   2. Key generation and key loading must use the SAME context so the provider's
+        //      session can see newly created keys immediately.
+        //   3. The context must persist after this function returns, because the loaded EVP_PKEY
+        //      is bound to the provider instance within this context. If the context is destroyed,
+        //      the provider's encoders become unavailable and CSR generation fails with
+        //      "No encoders were found" at X509_PUBKEY_set.
+        //
+        // We recreate the context on each call to ensure a fresh PKCS#11 session — this avoids
+        // stale session caches that can't see keys created in previous invocations.
+        static OSSL_LIB_CTX* s_pkcs11_libctx = nullptr;
+
+        // Free the previous context (and its provider instances / sessions)
+        if (s_pkcs11_libctx != nullptr) {
+            OSSL_LIB_CTX_free(s_pkcs11_libctx);
+            s_pkcs11_libctx = nullptr;
+        }
+
+        s_pkcs11_libctx = OSSL_LIB_CTX_new();
+        if (s_pkcs11_libctx == nullptr) {
+            EVLOG_error << "Failed to create OSSL_LIB_CTX for PKCS#11 operations";
+            return false;
+        }
+        if (!OSSL_LIB_CTX_load_config(s_pkcs11_libctx, "/etc/ssl/openssl.cnf")) {
+            EVLOG_error << "Failed to load OpenSSL config into PKCS#11 context";
+            ERR_print_errors_fp(stderr);
+            OSSL_LIB_CTX_free(s_pkcs11_libctx);
+            s_pkcs11_libctx = nullptr;
+            return false;
+        }
+
         // Derive key label from filename
         std::string key_label =
             key_info.private_key_file.has_value() ? key_info.private_key_file.value().stem().string() : "generated_key";
 
-        // Generate key in HSM
-        auto uri_opt = PKCS11Helper::generate_key_in_hsm(key_info.key_type, key_label);
+        // Generate key in HSM using our dedicated context
+        auto uri_opt = PKCS11Helper::generate_key_in_hsm(key_info.key_type, key_label, s_pkcs11_libctx);
         if (!uri_opt.has_value()) {
             EVLOG_error << "Failed to generate key in PKCS#11 HSM";
             return false;
         }
 
+        // From this point on, a key exists on the HSM token. If any subsequent step fails,
+        // we must delete it to prevent orphan keys from accumulating and filling the token.
+        // This lambda captures key_label and is called on every failure path below.
+        auto rollback_hsm_key = [&key_label]() {
+            EVLOG_warning << "Rolling back HSM key after failure: " << key_label;
+            PKCS11Helper::delete_key_from_hsm(key_label);
+        };
+
         // Write PKCS#11 URI to PEM file
         if (key_info.private_key_file.has_value()) {
             if (!PKCS11Helper::write_pkcs11_uri_pem_file(uri_opt.value(), key_info.private_key_file.value())) {
                 EVLOG_error << "Failed to write PKCS#11 URI PEM file";
+                rollback_hsm_key();
                 return false;
             }
         }
 
-        // Set provider to custom mode before loading
-        provider.set_global_mode(OpenSSLProvider::mode_t::custom_provider);
+        // Load the private key from the HSM via the PKCS#11 URI using OpenSSL's OSSL_STORE API.
+        // We use the SAME context that generated the key, so the provider's session sees it.
+        const std::string& pkcs11_uri = uri_opt.value();
 
-        // Load the key back from the PKCS#11 URI PEM file
-        // OpenSSL will transparently handle the PKCS#11 URI
-        if (key_info.private_key_file.has_value()) {
-            const BIO_ptr key_bio(BIO_new_file(key_info.private_key_file.value().c_str(), "r"));
-            if (!key_bio) {
-                EVLOG_error << "Failed to open PKCS#11 URI PEM file for reading";
-                return false;
-            }
-
-            EVP_PKEY* pkey = PEM_read_bio_PrivateKey(key_bio.get(), nullptr, nullptr, nullptr);
-            if (!pkey) {
-                EVLOG_error << "Failed to load private key from PKCS#11 URI";
-                ERR_print_errors_fp(stderr);
-                return false;
-            }
-
-            auto evp_key = EVP_PKEY_ptr(pkey);
-
-            // Export public key if requested
-            if (key_info.public_key_file.has_value()) {
-                const BIO_ptr pub_bio(BIO_new_file(key_info.public_key_file.value().c_str(), "w"));
-                if (!pub_bio || 0 == PEM_write_bio_PUBKEY(pub_bio.get(), evp_key.get())) {
-                    EVLOG_error << "Failed to write public key!";
-                    return false;
-                }
-            }
-
-            // Return the key handle
-            EVP_PKEY* raw_key_handle = evp_key.release();
-            out_key = std::make_unique<KeyHandleOpenSSL>(raw_key_handle);
+        OSSL_STORE_CTX* store_ctx =
+            OSSL_STORE_open_ex(pkcs11_uri.c_str(), s_pkcs11_libctx, nullptr, nullptr, nullptr, nullptr,
+                               nullptr, nullptr);
+        if (store_ctx == nullptr) {
+            EVLOG_error << "Failed to open OSSL_STORE for PKCS#11 URI: " << pkcs11_uri;
+            ERR_print_errors_fp(stderr);
+            rollback_hsm_key();
+            return false;
         }
+
+        EVP_PKEY* pkey = nullptr;
+        while (!OSSL_STORE_eof(store_ctx)) {
+            OSSL_STORE_INFO* info = OSSL_STORE_load(store_ctx);
+            if (info == nullptr) {
+                continue;
+            }
+
+            if (OSSL_STORE_INFO_get_type(info) == OSSL_STORE_INFO_PKEY) {
+                pkey = OSSL_STORE_INFO_get1_PKEY(info);
+                OSSL_STORE_INFO_free(info);
+                break;
+            }
+            OSSL_STORE_INFO_free(info);
+        }
+        OSSL_STORE_close(store_ctx);
+
+        if (pkey == nullptr) {
+            EVLOG_error << "Failed to load private key from PKCS#11 URI: " << pkcs11_uri;
+            ERR_print_errors_fp(stderr);
+            rollback_hsm_key();
+            return false;
+        }
+
+        auto evp_key = EVP_PKEY_ptr(pkey);
+
+        // Export public key if requested
+        if (key_info.public_key_file.has_value()) {
+            const BIO_ptr pub_bio(BIO_new_file(key_info.public_key_file.value().c_str(), "w"));
+            if (!pub_bio || 0 == PEM_write_bio_PUBKEY(pub_bio.get(), evp_key.get())) {
+                EVLOG_error << "Failed to write public key!";
+                rollback_hsm_key();
+                return false;
+            }
+        }
+
+        // Return the key handle. The static s_pkcs11_libctx persists, keeping the provider's
+        // encoders alive so the EVP_PKEY can be used for CSR generation (X509_PUBKEY_set, etc.)
+        EVP_PKEY* raw_key_handle = evp_key.release();
+        out_key = std::make_unique<KeyHandleOpenSSL>(raw_key_handle);
 
         return true;
     }

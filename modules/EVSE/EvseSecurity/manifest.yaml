@@ -54,6 +54,10 @@ config:
     description: PKCS#11 token PIN for HSM access.
     type: string
     default: "0000"
+  max_certificate_entries:
+    description: Maximum number of certificate and key files across all stores before garbage collection is triggered. Set to 0 to use the library default.
+    type: integer
+    default: 0
 provides:
   main:
     description: Implementation of the evse_security interface

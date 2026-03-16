@@ -19,7 +19,24 @@
 #include <evse_security/certificate/x509_wrapper.hpp>
 #include <evse_security/utils/evse_filesystem.hpp>
 
+#ifdef USING_CUSTOM_PROVIDER
+#include <evse_security/crypto/openssl/openssl_pkcs11_helper.hpp>
+#endif
+
 namespace evse_security {
+
+namespace {
+
+/// @brief Delete an HSM key if the key file is a .tkey (PKCS#11 URI PEM).
+/// On non-USING_CUSTOM_PROVIDER builds, this is a no-op.
+/// @param key_path Path to the key file
+void delete_hsm_key_for_path([[maybe_unused]] const fs::path& key_path) {
+#ifdef USING_CUSTOM_PROVIDER
+    PKCS11Helper::delete_hsm_key_if_tkey(key_path);
+#endif
+}
+
+} // namespace
 
 namespace {
 InstallCertificateResult to_install_certificate_result(CertificateValidationResult error) {
@@ -291,7 +308,7 @@ EvseSecurity::EvseSecurity(const FilePaths& file_paths, const std::optional<std:
     private_key_password(private_key_password),
     directories(file_paths.directories),
     links(file_paths.links),
-    max_fs_usage_bytes(max_fs_usage_bytes.value_or(DEFAULT_MAX_FILESYSTEM_SIZE)),
+    max_fs_usage_bytes(max_fs_usage_bytes.value_or(0)),
     max_fs_certificate_store_entries(max_fs_certificate_store_entries.value_or(DEFAULT_MAX_CERTIFICATE_ENTRIES)),
     csr_expiry(csr_expiry.value_or(DEFAULT_CSR_EXPIRY)),
     garbage_collect_time(garbage_collect_time.value_or(DEFAULT_GARBAGE_COLLECT_TIME)) {
@@ -566,6 +583,7 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
 
                         if (key_path.has_value()) {
                             EVLOG_info << "Deleted key of leaf certificate: " << deleted_leaf.get_common_name();
+                            delete_hsm_key_for_path(key_path.value());
                             filesystem_utils::delete_file(key_path.value());
                         }
 
@@ -688,6 +706,70 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
 
             // TODO(ioan): properly rename key path here for fast retrieval
             // @see 'get_private_key_path_of_certificate' and 'get_certificate_path_of_key'
+
+            // Clean up old certificates from the same trust chain (same root CA).
+            // Per ISO 15118 / auditor requirements: shall not store more than one
+            // leaf cert + key from the same V2G root at the same time.
+            try {
+                CaCertificateType root_type = (certificate_type == LeafCertificateType::CSMS)
+                                                  ? CaCertificateType::CSMS
+                                                  : CaCertificateType::V2G;
+                const fs::path root_dir = ca_bundle_path_map[root_type];
+                X509CertificateBundle root_bundle(root_dir, EncodingFormat::PEM);
+                X509CertificateBundle all_leafs(cert_path, EncodingFormat::PEM);
+
+                auto hierarchy = X509CertificateHierarchy::build_hierarchy(root_bundle.split(), all_leafs.split());
+
+                // Find the root CA that issued the new leaf certificate
+                auto new_leaf_root = hierarchy.find_certificate_root(leaf_certificate);
+                std::string new_root_issuer;
+                if (new_leaf_root.has_value()) {
+                    new_root_issuer = new_leaf_root.value().get_common_name();
+                }
+
+                if (!new_root_issuer.empty()) {
+                    // Scan for other leaf certs from the same root and delete them
+                    all_leafs.for_each_chain(
+                        [&](const fs::path& existing_file, const std::vector<X509Wrapper>& chain) {
+                            if (chain.empty()) {
+                                return true;
+                            }
+
+                            const auto& existing_leaf = chain[0];
+
+                            // Skip the certificate we just installed
+                            if (existing_leaf == leaf_certificate) {
+                                return true;
+                            }
+
+                            // Check if this cert chains to the same root
+                            auto existing_root = hierarchy.find_certificate_root(existing_leaf);
+                            if (existing_root.has_value() &&
+                                existing_root.value().get_common_name() == new_root_issuer) {
+
+                                EVLOG_info << "Deleting old leaf cert from same root ('"
+                                           << new_root_issuer << "'): " << existing_file;
+
+                                // Find and delete the old cert's private key
+                                auto old_key_path = get_private_key_path_of_certificate(
+                                    existing_leaf, key_path, this->private_key_password);
+                                if (old_key_path.has_value()) {
+                                    // Delete the HSM key object if this is a .tkey file
+                                    delete_hsm_key_for_path(old_key_path.value());
+                                    filesystem_utils::delete_file(old_key_path.value());
+                                }
+
+                                // Delete the old certificate file
+                                filesystem_utils::delete_file(existing_file);
+                            }
+
+                            return true; // continue iterating
+                        });
+                }
+            } catch (const std::exception& e) {
+                // Non-fatal: failure to clean up old certs shouldn't block installation
+                EVLOG_warning << "Failed to clean up old leaf certificates: " << e.what();
+            }
 
             return InstallCertificateResult::Accepted;
         }
@@ -1223,7 +1305,43 @@ bool EvseSecurity::is_ca_certificate_installed_internal(CaCertificateType certif
 }
 
 void EvseSecurity::certificate_signing_request_failed(const std::string& csr, LeafCertificateType certificate_type) {
-    // TODO(ioan): delete the pairing key of the CSR
+    const std::lock_guard<std::mutex> guard(EvseSecurity::security_mutex);
+
+    EVLOG_info << "CSR failed for: " << conversions::leaf_certificate_type_to_string(certificate_type)
+               << ", cleaning up associated private key(s)";
+
+    // Determine the key directory for this certificate type
+    fs::path key_dir;
+    if (certificate_type == LeafCertificateType::CSMS) {
+        key_dir = this->directories.csms_leaf_key_directory;
+    } else if (certificate_type == LeafCertificateType::V2G) {
+        key_dir = this->directories.secc_leaf_key_directory;
+    } else {
+        EVLOG_warning << "CSR failed for unsupported certificate type";
+        return;
+    }
+
+    // Delete all orphan keys in managed_csr that belong to this certificate type's key directory.
+    // A failed CSR means the key will never be paired with a certificate, so it can be cleaned up
+    // immediately rather than waiting for GC.
+    for (auto it = managed_csr.begin(); it != managed_csr.end();) {
+        const fs::path& key_path = it->first;
+
+        // Only delete keys that belong to this certificate type's directory
+        if (key_path.parent_path() == key_dir) {
+            EVLOG_info << "Deleting orphaned key from failed CSR: " << key_path;
+
+            // Delete the HSM key object if applicable
+            delete_hsm_key_for_path(key_path);
+
+            // Delete the key file from filesystem
+            filesystem_utils::delete_file(key_path);
+
+            it = managed_csr.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 GetCertificateSignRequestResult
@@ -1310,11 +1428,77 @@ GetCertificateSignRequestResult EvseSecurity::generate_certificate_signing_reque
         info.key_info.private_key_pass = private_key_password;
     }
 
+    // Before generating a new key, clean up any orphan .tkey files (and their HSM keys) in
+    // this certificate type's key directory. This prevents the HSM token from filling up when
+    // CSR requests are retried rapidly — each failed attempt leaves an orphan key on the token
+    // that would otherwise only be cleaned up by GC (20-minute interval).
+    //
+    // We delete any .tkey file in the key directory that is tracked in managed_csr (i.e., an
+    // orphan key from a previous CSR that was never paired with a certificate). We also delete
+    // any .tkey file that doesn't have a matching certificate file — these are orphans from
+    // before managed_csr tracking was added, or from a process restart.
+    if (use_custom_provider) {
+        const fs::path key_dir = key_path.parent_path();
+        try {
+            for (const auto& entry : fs::directory_iterator(key_dir)) {
+                if (!entry.is_regular_file() || entry.path().extension() != CUSTOM_KEY_EXTENSION) {
+                    continue;
+                }
+
+                const fs::path& tkey_path = entry.path();
+
+                // Check if this key is in managed_csr (known orphan) or has no matching cert
+                bool is_orphan = (managed_csr.find(tkey_path) != managed_csr.end());
+
+                if (!is_orphan) {
+                    // Check if there's a matching certificate file (.pem with same stem)
+                    fs::path cert_dir;
+                    if (certificate_type == LeafCertificateType::CSMS) {
+                        cert_dir = this->directories.csms_leaf_cert_directory;
+                    } else {
+                        cert_dir = this->directories.secc_leaf_cert_directory;
+                    }
+
+                    // Look for any cert file that references this key
+                    bool has_matching_cert = false;
+                    try {
+                        for (const auto& cert_entry : fs::directory_iterator(cert_dir)) {
+                            if (cert_entry.is_regular_file() && cert_entry.path().extension() == PEM_EXTENSION) {
+                                // A cert matches this key if they share the same stem prefix
+                                // (the key filename is derived from the cert filename)
+                                fs::path potential_key = cert_entry.path();
+                                potential_key.replace_extension(CUSTOM_KEY_EXTENSION);
+                                if (fs::exists(potential_key) && potential_key == tkey_path) {
+                                    has_matching_cert = true;
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        EVLOG_debug << "Error scanning cert directory: " << e.what();
+                    }
+
+                    is_orphan = !has_matching_cert;
+                }
+
+                if (is_orphan) {
+                    EVLOG_info << "Pre-generation cleanup: deleting orphan HSM key: " << tkey_path;
+                    delete_hsm_key_for_path(tkey_path);
+                    filesystem_utils::delete_file(tkey_path);
+                    managed_csr.erase(tkey_path);
+                }
+            }
+        } catch (const std::exception& e) {
+            // Non-fatal: failure to clean up shouldn't block CSR generation
+            EVLOG_warning << "Pre-generation orphan cleanup failed: " << e.what();
+        }
+    }
+
     return generate_certificate_signing_request_internal(certificate_type, info);
 }
 
 GetCertificateSignRequestResult EvseSecurity::generate_certificate_signing_request(LeafCertificateType certificate_type,
-                                                                                   const std::string& country,
+                                                                                    const std::string& country,
                                                                                    const std::string& organization,
                                                                                    const std::string& common) {
     return generate_certificate_signing_request(certificate_type, country, organization, common, false);
@@ -2193,6 +2377,10 @@ void EvseSecurity::garbage_collect() {
     } // End leaf for iteration
 
     for (const auto& expired_certificate_file : invalid_certificate_files) {
+        // If this is a .tkey file (PKCS#11 URI PEM), destroy the HSM key object before
+        // removing the filesystem pointer. Otherwise the HSM key becomes orphaned.
+        delete_hsm_key_for_path(expired_certificate_file);
+
         if (filesystem_utils::delete_file(expired_certificate_file)) {
             EVLOG_info << "Deleted expired certificate file: " << expired_certificate_file;
         } else {
@@ -2252,6 +2440,9 @@ void EvseSecurity::garbage_collect() {
 
         if (elapsed > csr_expiry) {
             EVLOG_debug << "Found expired csr key, deleting: " << it->first;
+
+            // Destroy the HSM key object before removing the filesystem pointer
+            delete_hsm_key_for_path(it->first);
             filesystem_utils::delete_file(it->first);
 
             it = managed_csr.erase(it);
@@ -2382,17 +2573,6 @@ bool EvseSecurity::is_filesystem_full() {
     if (total_entries > max_fs_certificate_store_entries) {
         EVLOG_warning << "Exceeded maximum entries: " << max_fs_certificate_store_entries << " with :" << total_entries
                       << " total entries";
-        return true;
-    }
-
-    uintmax_t total_size_bytes = 0;
-    for (const auto& path : unique_paths) {
-        total_size_bytes = fs::file_size(path);
-    }
-
-    EVLOG_debug << "Total bytes used: " << total_size_bytes;
-    if (total_size_bytes >= max_fs_usage_bytes) {
-        EVLOG_warning << "Exceeded maximum byte size: " << total_size_bytes;
         return true;
     }
 
