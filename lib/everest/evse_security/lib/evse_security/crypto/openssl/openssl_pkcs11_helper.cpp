@@ -22,106 +22,119 @@ const PKCS11Config& PKCS11Helper::get_config() {
 
 #include <evse_security/crypto/openssl/openssl_asn1_der.hpp>
 
+#include <openssl/core_names.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
-#include <openssl/sha.h>
+#include <openssl/param_build.h>
+#include <openssl/provider.h>
 
 #include <everest/logging.hpp>
 
-#include <cstdio>
 #include <fstream>
-#include <iomanip>
 #include <sstream>
 
 namespace evse_security {
 
-std::string PKCS11Helper::get_pkcs11_key_type_param(CryptoKeyType type) {
-    switch (type) {
-    case CryptoKeyType::EC_prime256v1:
-        return "EC:prime256v1";
-    case CryptoKeyType::EC_secp384r1:
-        return "EC:secp384r1";
-    case CryptoKeyType::RSA_2048: // Also handles RSA_TPM20 (alias)
-        return "RSA:2048";
-    case CryptoKeyType::RSA_3072:
-        return "RSA:3072";
-    case CryptoKeyType::RSA_7680:
-        return "RSA:7680";
-    default:
-        EVLOG_error << "Unsupported key type for PKCS#11";
-        return "";
-    }
-}
-
-std::string PKCS11Helper::generate_key_id(const std::string& key_label) {
-    // Generate a 2-byte key ID based on SHA256 hash of label
-    // This ensures uniqueness while being deterministic
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(key_label.c_str()), key_label.length(), hash);
-
-    // Use first 2 bytes as hex string
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(hash[0]) << std::setw(2)
-        << static_cast<int>(hash[1]);
-
-    return oss.str();
-}
-
 std::optional<std::string> PKCS11Helper::generate_key_in_hsm(CryptoKeyType key_type, const std::string& key_label) {
     const auto& config = s_config;
-    EVLOG_info << "Generating PKCS#11 key in HSM: " << key_label;
+    EVLOG_info << "Generating PKCS#11 key pair in HSM via OpenSSL provider: " << key_label;
 
-    // Map key type to pkcs11-tool parameters
-    std::string key_type_param = get_pkcs11_key_type_param(key_type);
-    if (key_type_param.empty()) {
-        EVLOG_error << "Invalid key type for PKCS#11";
+    // Determine algorithm name and EC group or RSA bits
+    bool is_ec = true;
+    std::string algorithm;
+    std::string group;
+    unsigned int bits = 0;
+
+    switch (key_type) {
+    case CryptoKeyType::EC_prime256v1:
+        algorithm = "EC";
+        group = "P-256";
+        break;
+    case CryptoKeyType::EC_secp384r1:
+        algorithm = "EC";
+        group = "P-384";
+        break;
+    case CryptoKeyType::RSA_2048: // RSA_TPM20 is an alias for RSA_2048
+        algorithm = "RSA";
+        is_ec = false;
+        bits = 2048;
+        break;
+    case CryptoKeyType::RSA_3072:
+        algorithm = "RSA";
+        is_ec = false;
+        bits = 3072;
+        break;
+    case CryptoKeyType::RSA_7680:
+        algorithm = "RSA";
+        is_ec = false;
+        bits = 7680;
+        break;
+    default:
+        EVLOG_error << "Unsupported key type for PKCS#11 key generation";
         return std::nullopt;
     }
 
-    // Generate unique key ID
-    std::string key_id = generate_key_id(key_label);
+    // Build PKCS#11 URI that tells the provider where to store the key on the token
+    std::string pkcs11_uri = "pkcs11:token=" + config.token + ";object=" + key_label + ";type=private";
 
-    // Build pkcs11-tool command
-    std::ostringstream cmd;
-    cmd << "pkcs11-tool" << " --module " << config.module_path << " --login" << " --slot " << config.slot
-        << " --keypairgen" << " --key-type " << key_type_param << " --label " << key_label << " --id " << key_id
-        << " --usage-sign" << " --pin " << config.pin << " 2>&1"; // Capture stderr too
+    EVLOG_info << "Requesting " << algorithm << " key generation via pkcs11 provider"
+               << (is_ec ? (", group=" + group) : (", bits=" + std::to_string(bits)))
+               << ", pkcs11_uri=" << pkcs11_uri;
 
-    EVLOG_info << "Executing: pkcs11-tool --module " << config.module_path << " --login --slot " << config.slot
-               << " --keypairgen --key-type " << key_type_param << " --label " << key_label << " --id " << key_id
-               << " --usage-sign --pin [REDACTED]";
-
-    // Execute command
-    FILE* pipe = popen(cmd.str().c_str(), "r");
-    if (!pipe) {
-        EVLOG_error << "Failed to execute pkcs11-tool command";
+    // Create a keygen context using the pkcs11 provider.
+    // We use the default (NULL) library context which reads the system openssl.cnf.
+    // This is where the PKCS#11 module path, PIN, login behavior and other provider
+    // settings are configured (see /etc/ssl/openssl.cnf [pkcs11_sect]).
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_name(nullptr, algorithm.c_str(), "provider=pkcs11");
+    if (ctx == nullptr) {
+        EVLOG_error << "Failed to create EVP_PKEY_CTX for " << algorithm << " with pkcs11 provider";
+        ERR_print_errors_fp(stderr);
         return std::nullopt;
     }
 
-    // Read output
-    char buffer[256];
-    std::string output;
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
+    // Ensure cleanup on all exit paths
+    auto ctx_cleanup = [](EVP_PKEY_CTX* p) { EVP_PKEY_CTX_free(p); };
+    std::unique_ptr<EVP_PKEY_CTX, decltype(ctx_cleanup)> ctx_guard(ctx, ctx_cleanup);
 
-    int exit_code = pclose(pipe);
-    if (exit_code != 0) {
-        EVLOG_error << "pkcs11-tool failed with exit code " << exit_code;
-        EVLOG_error << "Output: " << output;
+    if (EVP_PKEY_keygen_init(ctx) <= 0) {
+        EVLOG_error << "EVP_PKEY_keygen_init failed for pkcs11 " << algorithm << " key generation";
+        ERR_print_errors_fp(stderr);
         return std::nullopt;
     }
 
-    EVLOG_info << "Key pair generated successfully in HSM";
-    EVLOG_debug << "pkcs11-tool output: " << output;
+    // Set key generation parameters:
+    //   - "group" (EC) or "bits" (RSA): defines the key size/curve
+    //   - "pkcs11_uri": tells the pkcs11 provider which token and object label to use
+    std::array<OSSL_PARAM, 3> params;
+    if (is_ec) {
+        params[0] = OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME,
+                                                      const_cast<char*>(group.c_str()), 0);
+    } else {
+        params[0] = OSSL_PARAM_construct_uint(OSSL_PKEY_PARAM_BITS, &bits);
+    }
+    params[1] = OSSL_PARAM_construct_utf8_string("pkcs11_uri",
+                                                  const_cast<char*>(pkcs11_uri.c_str()), 0);
+    params[2] = OSSL_PARAM_construct_end();
 
-    // Build PKCS#11 URI
-    std::ostringstream uri;
-    uri << "pkcs11:" << "token=" << config.token << ";object=" << key_label << ";type=private";
+    if (EVP_PKEY_CTX_set_params(ctx, params.data()) <= 0) {
+        EVLOG_error << "Failed to set keygen parameters for pkcs11 " << algorithm << " key generation";
+        ERR_print_errors_fp(stderr);
+        return std::nullopt;
+    }
 
-    std::string uri_str = uri.str();
-    EVLOG_info << "Generated PKCS#11 URI: " << uri_str;
+    // Generate the key pair in the HSM
+    EVP_PKEY* pkey = nullptr;
+    if (EVP_PKEY_generate(ctx, &pkey) <= 0) {
+        EVLOG_error << "EVP_PKEY_generate failed for pkcs11 " << algorithm << " key generation";
+        ERR_print_errors_fp(stderr);
+        return std::nullopt;
+    }
+    EVP_PKEY_free(pkey);
 
-    return uri_str;
+    EVLOG_info << "Key pair generated successfully in HSM via OpenSSL pkcs11 provider";
+    EVLOG_info << "PKCS#11 URI: " << pkcs11_uri;
+
+    return pkcs11_uri;
 }
 
 bool PKCS11Helper::write_pkcs11_uri_pem_file(const std::string& pkcs11_uri, const fs::path& output_file) {

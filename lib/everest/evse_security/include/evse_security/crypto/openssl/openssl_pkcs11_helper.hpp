@@ -19,6 +19,11 @@ struct PKCS11Config {
 };
 
 /// @brief Helper class for PKCS#11 HSM operations
+///
+/// Uses the OpenSSL 3 EVP API with the pkcs11 provider to generate keys
+/// directly in the HSM, rather than shelling out to pkcs11-tool. The pkcs11
+/// provider configuration (module path, PIN, login behavior, etc.) is read
+/// from the system openssl.cnf via the default OpenSSL library context.
 class PKCS11Helper {
 public:
     /// @brief Set the global PKCS#11 configuration (called once during module init)
@@ -30,6 +35,12 @@ public:
     static const PKCS11Config& get_config();
 
     /// @brief Generate a key pair in the HSM and return its PKCS#11 URI
+    ///
+    /// Uses EVP_PKEY_generate() with the OpenSSL pkcs11 provider to create
+    /// the key pair directly in the HSM. The provider handles PKCS#11 login,
+    /// C_GenerateKeyPair, and key storage internally. The token and object
+    /// label are specified via a pkcs11_uri parameter.
+    ///
     /// @param key_type The type of key to generate (EC, RSA, etc.)
     /// @param key_label The label to assign to the key in the HSM
     /// @return PKCS#11 URI string if successful, std::nullopt on failure
@@ -43,16 +54,6 @@ public:
 
 private:
     static PKCS11Config s_config;
-
-    /// @brief Map CryptoKeyType to pkcs11-tool key-type parameter string
-    /// @param type The key type to map
-    /// @return pkcs11-tool key-type parameter (e.g., "EC:prime256v1")
-    static std::string get_pkcs11_key_type_param(CryptoKeyType type);
-
-    /// @brief Generate a unique key ID for the HSM
-    /// @param key_label The key label to base the ID on
-    /// @return Hex-encoded key ID (2 bytes)
-    static std::string generate_key_id(const std::string& key_label);
 };
 
 } // namespace evse_security
