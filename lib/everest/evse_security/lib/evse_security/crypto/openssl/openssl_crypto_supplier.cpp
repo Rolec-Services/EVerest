@@ -13,9 +13,12 @@
 #include <vector>
 
 #include <openssl/bio.h>
+#include <openssl/core_names.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/obj_mac.h>
 #include <openssl/opensslv.h>
+#include <openssl/param_build.h>
 #include <openssl/pem.h>
 #include <openssl/sha.h>
 #include <openssl/provider.h>
@@ -50,21 +53,29 @@ EVP_PKEY* get(KeyHandle* handle) {
 }
 
 CertificateValidationResult to_certificate_error(const int ec) {
+    EVLOG_warning << "Certificate verification failed with OpenSSL error code " << ec
+                  << " (" << X509_verify_cert_error_string(ec) << ")";
+
     switch (ec) {
     case X509_V_ERR_CERT_HAS_EXPIRED:
+        EVLOG_warning << "  -> Mapped to: Expired";
         return CertificateValidationResult::Expired;
     case X509_V_ERR_CERT_SIGNATURE_FAILURE:
+        EVLOG_warning << "  -> Mapped to: InvalidSignature";
         return CertificateValidationResult::InvalidSignature;
     case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT:
     case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY:
+        EVLOG_warning << "  -> Mapped to: IssuerNotFound";
         return CertificateValidationResult::IssuerNotFound;
     case X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE:
+        EVLOG_warning << "  -> Mapped to: InvalidLeafSignature";
         return CertificateValidationResult::InvalidLeafSignature;
     case X509_V_ERR_CERT_CHAIN_TOO_LONG:
     case X509_V_ERR_CERT_UNTRUSTED:
+        EVLOG_warning << "  -> Mapped to: InvalidChain";
         return CertificateValidationResult::InvalidChain;
     default:
-        EVLOG_warning << X509_verify_cert_error_string(ec);
+        EVLOG_warning << "  -> Unmapped error code " << ec << ", returning Unknown";
         return CertificateValidationResult::Unknown;
     }
 }
@@ -693,13 +704,69 @@ CertificateValidationResult OpenSSLSupplier::x509_verify_certificate_chain(
         X509_STORE_CTX_set_flags(store_ctx_ptr.get(), X509_V_FLAG_NO_CHECK_TIME);
     }
 
+    // Log details about the certificate being verified
+    {
+        X509* target_cert = get(target);
+        if (target_cert != nullptr) {
+            char subject_buf[256] = {};
+            char issuer_buf[256] = {};
+            X509_NAME_oneline(X509_get_subject_name(target_cert), subject_buf, sizeof(subject_buf));
+            X509_NAME_oneline(X509_get_issuer_name(target_cert), issuer_buf, sizeof(issuer_buf));
+
+            EVLOG_info << "Verifying certificate chain:";
+            EVLOG_info << "  Subject: " << subject_buf;
+            EVLOG_info << "  Issuer:  " << issuer_buf;
+            EVLOG_info << "  Trusted parent certs: " << parents.size();
+            EVLOG_info << "  Untrusted intermediates: " << untrusted_subcas.size();
+            EVLOG_info << "  Allow future certs: " << (allow_future_certificates ? "yes" : "no");
+
+            // Log the public key type and encoding details
+            EVP_PKEY* pubkey = X509_get0_pubkey(target_cert);
+            if (pubkey != nullptr) {
+                int key_type = EVP_PKEY_id(pubkey);
+                int key_bits = EVP_PKEY_bits(pubkey);
+                EVLOG_info << "  Public key type: " << OBJ_nid2sn(key_type) << " (" << key_bits << " bits)";
+
+                // Check if EC key uses explicit parameters (the issue we're investigating)
+                if (key_type == EVP_PKEY_EC) {
+                    char group_name[64] = {};
+                    size_t group_name_len = 0;
+                    if (EVP_PKEY_get_utf8_string_param(pubkey, OSSL_PKEY_PARAM_GROUP_NAME, group_name,
+                                                       sizeof(group_name), &group_name_len)) {
+                        EVLOG_info << "  EC curve (named): " << group_name;
+                    } else {
+                        EVLOG_warning << "  EC curve: COULD NOT RETRIEVE NAMED CURVE (likely explicit parameters)";
+                        ERR_clear_error(); // Clear the error from the failed param retrieval
+                    }
+
+                    // Check the encoding size — explicit params produce much larger encodings
+                    int der_len = i2d_PUBKEY(pubkey, nullptr);
+                    EVLOG_info << "  Public key DER encoding size: " << der_len << " bytes"
+                               << (der_len > 100 ? " (LARGE - likely explicit EC parameters)" : " (normal - named curve)");
+                }
+            }
+        }
+    }
+
     // verifies the certificate chain based on ctx
     // verifies the certificate has not expired and is already valid
     if (X509_verify_cert(store_ctx_ptr.get()) != 1) {
         const int ec = X509_STORE_CTX_get_error(store_ctx_ptr.get());
+        const int depth = X509_STORE_CTX_get_error_depth(store_ctx_ptr.get());
+        EVLOG_warning << "X509_verify_cert failed at depth " << depth;
+
+        // Log the certificate at the error depth
+        X509* err_cert = X509_STORE_CTX_get_current_cert(store_ctx_ptr.get());
+        if (err_cert != nullptr) {
+            char err_subject[256] = {};
+            X509_NAME_oneline(X509_get_subject_name(err_cert), err_subject, sizeof(err_subject));
+            EVLOG_warning << "  Failing certificate: " << err_subject;
+        }
+
         return to_certificate_error(ec);
     }
 
+    EVLOG_info << "Certificate chain verification: PASSED";
     return CertificateValidationResult::Valid;
 }
 
@@ -809,6 +876,104 @@ CertificateSignRequestResult OpenSSLSupplier::x509_generate_csr(const Certificat
 
     EVP_PKEY* key = get(gen_key.get());
 
+    // If the key is an EC key with explicit curve parameters (as exported by the OP-TEE
+    // PKCS#11 TA), we need to reconstruct a public-key-only EVP_PKEY using the named curve
+    // OID for the CSR's SubjectPublicKeyInfo. Explicit parameters produce ~335 bytes of DER
+    // encoding (vs ~91 for named curve) and cause OpenSSL 3.x to reject the signed certificate
+    // with X509_V_ERR_EC_KEY_EXPLICIT_PARAMS (error 94).
+    //
+    // The converted key is used only for X509_REQ_set_pubkey() — the original HSM-backed key
+    // is still used for X509_REQ_sign() since only it has access to the private key material.
+    EVP_PKEY* pubkey_for_csr = key;
+    EVP_PKEY_ptr named_curve_pubkey(nullptr);
+
+    if (EVP_PKEY_id(key) == EVP_PKEY_EC) {
+        int der_len = i2d_PUBKEY(key, nullptr);
+        if (der_len > 100) {
+            // DER encoding is too large for a named-curve key — explicit parameters detected.
+            // Attempt to reconstruct with named curve encoding.
+            EVLOG_info << "EC key has explicit parameters (DER size: " << der_len
+                       << " bytes), converting to named curve for CSR";
+
+            char group_name[64] = {};
+            size_t group_name_len = 0;
+            bool have_group = EVP_PKEY_get_utf8_string_param(key, OSSL_PKEY_PARAM_GROUP_NAME, group_name,
+                                                              sizeof(group_name), &group_name_len);
+            if (!have_group) {
+                EVLOG_warning << "Could not retrieve EC curve name — CSR will use explicit parameters";
+                ERR_clear_error();
+            } else {
+                // The pkcs11 provider won't export the raw EC point via OSSL_PKEY_PARAM_PUB_KEY.
+                // Instead, we serialize the public key to DER (which i2d_PUBKEY supports even for
+                // pkcs11 keys), then decode it back into a software (default provider) EVP_PKEY.
+                // From the software key we can extract the EC point, then reconstruct a new key
+                // with named curve encoding.
+
+                // Step 1: Serialize the pkcs11 key's public part to DER
+                unsigned char* der_buf = nullptr;
+                int der_size = i2d_PUBKEY(key, &der_buf);
+                if (der_size <= 0 || der_buf == nullptr) {
+                    EVLOG_warning << "Could not serialize EC public key to DER — CSR will use explicit parameters";
+                    ERR_print_errors_fp(stderr);
+                } else {
+                    // Step 2: Decode DER back into a software EVP_PKEY (default provider)
+                    const unsigned char* der_ptr = der_buf;
+                    EVP_PKEY* sw_pubkey = d2i_PUBKEY(nullptr, &der_ptr, der_size);
+                    OPENSSL_free(der_buf);
+
+                    if (sw_pubkey == nullptr) {
+                        EVLOG_warning << "Could not decode EC public key DER — CSR will use explicit parameters";
+                        ERR_print_errors_fp(stderr);
+                    } else {
+                        // Step 3: Extract the raw EC point from the software key
+                        size_t point_len = 0;
+                        EVP_PKEY_get_octet_string_param(sw_pubkey, OSSL_PKEY_PARAM_PUB_KEY, nullptr, 0, &point_len);
+                        std::vector<unsigned char> point(point_len);
+
+                        if (point_len > 0 &&
+                            EVP_PKEY_get_octet_string_param(sw_pubkey, OSSL_PKEY_PARAM_PUB_KEY, point.data(),
+                                                             point.size(), &point_len)) {
+                            // Step 4: Reconstruct a public-key-only EVP_PKEY with named curve encoding
+                            OSSL_PARAM_BLD* bld = OSSL_PARAM_BLD_new();
+                            OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, group_name, 0);
+                            OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY, point.data(), point_len);
+                            OSSL_PARAM* fromdata_params = OSSL_PARAM_BLD_to_param(bld);
+
+                            EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_from_name(nullptr, "EC", nullptr);
+                            if (pctx != nullptr && EVP_PKEY_fromdata_init(pctx) > 0) {
+                                EVP_PKEY* new_pubkey = nullptr;
+                                if (EVP_PKEY_fromdata(pctx, &new_pubkey, EVP_PKEY_PUBLIC_KEY, fromdata_params) > 0) {
+                                    named_curve_pubkey = EVP_PKEY_ptr(new_pubkey);
+                                    pubkey_for_csr = named_curve_pubkey.get();
+
+                                    int new_der_len = i2d_PUBKEY(pubkey_for_csr, nullptr);
+                                    EVLOG_info << "Converted EC public key to named curve '" << group_name
+                                               << "' (DER size: " << new_der_len << " bytes)";
+                                } else {
+                                    EVLOG_warning << "EVP_PKEY_fromdata failed — CSR will use explicit parameters";
+                                    ERR_print_errors_fp(stderr);
+                                }
+                            } else {
+                                EVLOG_warning << "EVP_PKEY_CTX setup failed — CSR will use explicit parameters";
+                                ERR_print_errors_fp(stderr);
+                            }
+
+                            EVP_PKEY_CTX_free(pctx);
+                            OSSL_PARAM_free(fromdata_params);
+                            OSSL_PARAM_BLD_free(bld);
+                        } else {
+                            EVLOG_warning << "Could not extract EC point from software key — "
+                                          << "CSR will use explicit parameters";
+                            ERR_print_errors_fp(stderr);
+                        }
+
+                        EVP_PKEY_free(sw_pubkey);
+                    }
+                }
+            }
+        }
+    }
+
     // X509 CSR request
     const X509_REQ_ptr x509_req_ptr(X509_REQ_new());
 
@@ -829,8 +994,8 @@ CertificateSignRequestResult OpenSSLSupplier::x509_generate_csr(const Certificat
         return CertificateSignRequestResult::VersioningError;
     }
 
-    // set public key of x509 req
-    if (0 == X509_REQ_set_pubkey(x509_req_ptr.get(), key)) {
+    // set public key of x509 req — use the named-curve key if we converted, otherwise original
+    if (0 == X509_REQ_set_pubkey(x509_req_ptr.get(), pubkey_for_csr)) {
         EVLOG_error << "Failed to set csr pubkey!";
         ERR_print_errors_fp(stderr);
 

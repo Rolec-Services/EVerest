@@ -577,14 +577,47 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
 
                     // Clear certificate additional data, key and OCSP
                     if (false == failed_to_write) {
-                        // Collect keys of deleted certificates and OCSP data
-                        auto key_path = get_private_key_path_of_certificate(deleted_leaf, leaf_certificate_key,
-                                                                            this->private_key_password);
-
-                        if (key_path.has_value()) {
-                            EVLOG_info << "Deleted key of leaf certificate: " << deleted_leaf.get_common_name();
-                            delete_hsm_key_for_path(key_path.value());
-                            filesystem_utils::delete_file(key_path.value());
+                        // Find and delete the private key for this certificate.
+                        // Check for key files (.key / .tkey) by name first to avoid noisy
+                        // error logs from get_private_key_path_of_certificate() when the key
+                        // doesn't exist (e.g., intermediate CA certs, or keys already cleaned up).
+                        bool found_key = false;
+                        if (deleted_leaf.get_file().has_value()) {
+                            for (const auto& ext : {KEY_EXTENSION, CUSTOM_KEY_EXTENSION}) {
+                                fs::path candidate = deleted_leaf.get_file().value();
+                                candidate.replace_extension(ext);
+                                if (fs::exists(candidate)) {
+                                    EVLOG_info << "Deleted key of leaf certificate: "
+                                               << deleted_leaf.get_common_name();
+                                    delete_hsm_key_for_path(candidate);
+                                    filesystem_utils::delete_file(candidate);
+                                    found_key = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!found_key) {
+                            // Also try the key directory with the cert's filename stem
+                            // (keys may be stored in a separate directory from certs)
+                            if (deleted_leaf.get_file().has_value()) {
+                                for (const auto& ext : {KEY_EXTENSION, CUSTOM_KEY_EXTENSION}) {
+                                    fs::path candidate = leaf_certificate_key /
+                                                         deleted_leaf.get_file().value().stem();
+                                    candidate.replace_extension(ext);
+                                    if (fs::exists(candidate)) {
+                                        EVLOG_info << "Deleted key of leaf certificate: "
+                                                   << deleted_leaf.get_common_name();
+                                        delete_hsm_key_for_path(candidate);
+                                        filesystem_utils::delete_file(candidate);
+                                        found_key = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (!found_key) {
+                            EVLOG_info << "No private key file found for certificate: "
+                                       << deleted_leaf.get_common_name() << " (CA cert or already cleaned up)";
                         }
 
                         // NOTE: Deletes the OCSP only of the leaf since the intermediates being used by
@@ -654,6 +687,9 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
         // Internal since we already acquired the lock
         const auto result = this->verify_certificate_internal(certificate_chain, {certificate_type});
         if (result != CertificateValidationResult::Valid) {
+            EVLOG_error << "Leaf certificate verification failed during update_leaf_certificate: "
+                        << "result=" << static_cast<int>(result) << " for type "
+                        << conversions::leaf_certificate_type_to_string(certificate_type);
             return to_install_certificate_result(result);
         }
 
@@ -750,13 +786,27 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
                                 EVLOG_info << "Deleting old leaf cert from same root ('"
                                            << new_root_issuer << "'): " << existing_file;
 
-                                // Find and delete the old cert's private key
-                                auto old_key_path = get_private_key_path_of_certificate(
-                                    existing_leaf, key_path, this->private_key_password);
-                                if (old_key_path.has_value()) {
-                                    // Delete the HSM key object if this is a .tkey file
-                                    delete_hsm_key_for_path(old_key_path.value());
-                                    filesystem_utils::delete_file(old_key_path.value());
+                                // Try to find and delete the old cert's private key.
+                                // Check for both .key and .tkey files by name before calling
+                                // get_private_key_path_of_certificate() — if neither exists,
+                                // the key was already cleaned up (e.g., by pre-generation
+                                // orphan cleanup) and we can skip silently.
+                                bool found_old_key = false;
+                                if (existing_leaf.get_file().has_value()) {
+                                    for (const auto& ext : {KEY_EXTENSION, CUSTOM_KEY_EXTENSION}) {
+                                        fs::path candidate = existing_leaf.get_file().value();
+                                        candidate.replace_extension(ext);
+                                        if (fs::exists(candidate)) {
+                                            EVLOG_info << "Deleting old private key: " << candidate;
+                                            delete_hsm_key_for_path(candidate);
+                                            filesystem_utils::delete_file(candidate);
+                                            found_old_key = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!found_old_key) {
+                                    EVLOG_info << "No private key file found for old cert (already cleaned up)";
                                 }
 
                                 // Delete the old certificate file
@@ -2259,8 +2309,17 @@ EvseSecurity::verify_certificate_internal(const std::string& certificate_chain,
             return CertificateValidationResult::IssuerNotFound;
         }
 
-        return CryptoSupplier::x509_verify_certificate_chain(leaf_certificate.get(), trusted_parent_certificates,
-                                                             untrusted_subcas, true, std::nullopt, std::nullopt);
+        auto validation_result = CryptoSupplier::x509_verify_certificate_chain(
+            leaf_certificate.get(), trusted_parent_certificates, untrusted_subcas, true, std::nullopt, std::nullopt);
+
+        if (validation_result != CertificateValidationResult::Valid) {
+            EVLOG_warning << "Certificate chain verification FAILED for leaf: " << leaf_certificate.get_common_name()
+                          << " (result: " << static_cast<int>(validation_result) << ")";
+        } else {
+            EVLOG_info << "Certificate chain verification PASSED for leaf: " << leaf_certificate.get_common_name();
+        }
+
+        return validation_result;
 
     } catch (const CertificateLoadException& e) {
         EVLOG_warning << "Could not validate certificate chain because of invalid format";
