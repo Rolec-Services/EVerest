@@ -66,7 +66,7 @@ inline std::ostream& operator<<(std::ostream& os, const std::optional<Mapping>& 
 struct ModuleTierMappings {
     std::optional<Mapping> module; ///< Mapping of the whole module to an EVSE id and optional Connector id. If this is
                                    ///< absent the module is assumed to be mapped to the whole charging station
-    std::unordered_map<std::string, std::optional<Mapping>>
+    std::map<std::string, std::optional<Mapping>, std::less<>>
         implementations; ///< Mappings for the individual implementations of the module
 };
 
@@ -102,8 +102,8 @@ using ModuleId = std::string;
 using RequirementId = std::string;
 using ConfigEntry = std::variant<std::string, bool, int, double>;
 using ImplementationIdentifier = std::string;
-using ModuleConnections = std::map<RequirementId, std::vector<Fulfillment>>;
-using ModuleConfigurations = std::map<ModuleId, ModuleConfig>;
+using ModuleConnections = std::map<RequirementId, std::vector<Fulfillment>, std::less<>>;
+using ModuleConfigurations = std::map<ModuleId, ModuleConfig, std::less<>>;
 using ModuleConfigurationParameters = std::map<ImplementationIdentifier, std::vector<ConfigurationParameter>>;
 
 struct VisitConfigEntry {

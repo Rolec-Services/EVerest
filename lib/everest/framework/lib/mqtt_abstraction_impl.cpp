@@ -355,13 +355,13 @@ void MQTTAbstractionImpl::on_mqtt_message(const Message& message) {
     const auto& payload = message.payload;
 
     try {
-        json data;
-        bool is_everest_topic = false;
-        if (topic.find(mqtt_everest_prefix) == 0) {
+        std::string_view topic_view = topic;
+        std::string_view mqtt_everest_prefix_view = mqtt_everest_prefix;
+        if (topic_view.size() >= mqtt_everest_prefix_view.size() &&
+            topic_view.compare(0, mqtt_everest_prefix_view.size(), mqtt_everest_prefix_view) == 0) {
             EVLOG_verbose << fmt::format("topic {} starts with {}", topic, mqtt_everest_prefix);
-            is_everest_topic = true;
             try {
-                data = json::parse(payload);
+                this->message_handler.add(ParsedMessage{std::move(topic), json::parse(payload.begin(), payload.end())});
             } catch (nlohmann::detail::parse_error& e) {
                 EVLOG_warning << fmt::format("Could not decode json for incoming topic '{}': {}", topic, payload);
                 return;
@@ -369,17 +369,13 @@ void MQTTAbstractionImpl::on_mqtt_message(const Message& message) {
         } else {
             EVLOG_debug << fmt::format("Message parsing for topic '{}' not implemented. Wrapping in json object.",
                                        topic);
-            data = json(payload);
+            this->message_handler.add(ParsedMessage{std::move(topic), std::move(payload)});
         }
-
-        bool found = false;
-
-        this->message_handler.add(ParsedMessage{topic, std::move(data)});
-    } catch (boost::exception& e) {
+    } catch (const boost::exception& e) {
         EVLOG_critical << fmt::format("Caught MQTT on_message boost::exception:\n{}",
                                       boost::diagnostic_information(e, true));
         exit(1);
-    } catch (std::exception& e) {
+    } catch (const std::exception& e) {
         EVLOG_critical << fmt::format("Caught MQTT on_message std::exception:\n{}",
                                       boost::diagnostic_information(e, true));
         exit(1);

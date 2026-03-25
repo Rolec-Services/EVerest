@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 
@@ -23,13 +24,13 @@ struct Message {
     std::string topic;   ///< The MQTT topic where this message originated from
     std::string payload; ///< The message payload
 
-    Message(const std::string& topic_, const std::string& payload_) : topic(topic_), payload(payload_) {
+    Message(std::string_view topic_param, std::string_view payload_param) : topic(topic_param), payload(payload_param) {
     }
 };
 
 struct ParsedMessage {
     std::string topic;
-    json data;
+    nlohmann::json data;
 };
 
 using MessageCallback = std::function<void(const Message&)>;

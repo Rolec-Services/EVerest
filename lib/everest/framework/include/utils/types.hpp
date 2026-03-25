@@ -21,7 +21,7 @@ using Value = json;
 using Parameters = json;
 using Result = std::optional<json>;
 using JsonCommand = std::function<json(json)>;
-using Command = std::function<Result(Parameters)>;
+using Command = std::function<Result(const Parameters&)>;
 using ArgumentType = std::vector<std::string>;
 using Arguments = std::map<std::string, ArgumentType>;
 using ReturnType = std::vector<std::string>;
@@ -97,7 +97,7 @@ enum class MqttMessageType {
 };
 
 std::string mqtt_message_type_to_string(MqttMessageType type);
-MqttMessageType string_to_mqtt_message_type(const std::string& str);
+MqttMessageType string_to_mqtt_message_type(std::string_view str);
 
 struct MqttMessagePayload {
     MqttMessageType type; ///< The type of the MQTT message
