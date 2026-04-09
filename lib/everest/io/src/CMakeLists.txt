@@ -1,5 +1,5 @@
 
-add_library(everest_io)
+add_library(everest_io SHARED)
 add_library(everest::io ALIAS everest_io)
 
 target_sources(everest_io
