@@ -390,20 +390,22 @@ int ServerTrustedCaKeys::handle_certificate_cb(SSL* ssl, void* arg) {
         std::lock_guard lock(tck_p->m_mux);
 
         const auto* selected = tck_p->select(keys_p->tck);
+        if (selected == nullptr) {
+            // No chain matched the EV's trusted CA list. Fall back to the most
+            // recently issued SECC certificate per multi-PKI requirement: if the
+            // EV presents only unknown trusted CAs, use the latest SECC leaf cert.
+            selected = tck_p->select_default();
+        }
         if (selected != nullptr) {
             if (!use_certificate_and_key(ssl, *selected)) {
-                // setting failed - try and use the default
-                selected = tck_p->select_default();
-                if (selected != nullptr) {
-                    if (!use_certificate_and_key(ssl, *selected)) {
-                        // there has been a problem setting the server
-                        // certificate, key and chain
-                        result = 0;
-                        log_warning("terminating TLS handshake: trusted_ca_keys");
-                    }
-                }
+                // there has been a problem setting the server
+                // certificate, key and chain
+                result = 0;
+                log_warning("terminating TLS handshake: trusted_ca_keys");
             }
         }
+        // If selected is still nullptr (no SECC certificates in store), result
+        // stays 1 and OpenSSL proceeds with its SSL_CTX default certificate.
     }
     return result;
 }
