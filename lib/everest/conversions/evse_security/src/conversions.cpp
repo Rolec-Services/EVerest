@@ -426,6 +426,15 @@ types::evse_security::OCSPRequestDataList to_everest(evse_security::OCSPRequestD
     return lhs;
 }
 
+types::evse_security::CertificateOCSP to_everest(evse_security::CertificateOCSP other) {
+    types::evse_security::CertificateOCSP lhs;
+    lhs.hash = to_everest(other.hash);
+    if (other.ocsp_path.has_value()) {
+        lhs.ocsp_path = other.ocsp_path.value().string();
+    }
+    return lhs;
+}
+
 types::evse_security::CertificateInfo to_everest(evse_security::CertificateInfo other) {
     types::evse_security::CertificateInfo lhs;
     lhs.key = other.key;
@@ -434,6 +443,13 @@ types::evse_security::CertificateInfo to_everest(evse_security::CertificateInfo 
     lhs.certificate_single = other.certificate_single;
     lhs.password = other.password;
     lhs.certificate_count = other.certificate_count;
+    if (!other.ocsp.empty()) {
+        std::vector<types::evse_security::CertificateOCSP> v;
+        for (const auto& ocsp_data : other.ocsp) {
+            v.push_back(to_everest(ocsp_data));
+        }
+        lhs.ocsp = v;
+    }
     return lhs;
 }
 

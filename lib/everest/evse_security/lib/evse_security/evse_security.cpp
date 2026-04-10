@@ -1223,6 +1223,13 @@ void EvseSecurity::update_ocsp_cache(const CertificateHashData& certificate_hash
 
     EVLOG_info << "Updating OCSP cache";
 
+    // The OCSP response from OCPP is base64-encoded; decode to raw DER before writing to disk
+    std::vector<std::uint8_t> decoded_response;
+    if (!CryptoSupplier::base64_decode_to_bytes(ocsp_response, decoded_response)) {
+        EVLOG_error << "Failed to base64 decode OCSP response";
+        return;
+    }
+
     // TODO(ioan): shouldn't we also do this for the MO?
     const auto ca_bundle_path = this->ca_bundle_path_map.at(CaCertificateType::V2G);
     auto leaf_cert_dir = this->directories.secc_leaf_cert_directory; // V2G leafs
@@ -1260,9 +1267,9 @@ void EvseSecurity::update_ocsp_cache(const CertificateHashData& certificate_hash
                 if (get_oscp_data_of_certificate(cert, certificate_hash_data, out_path_hash, out_path_data)) {
                     EVLOG_debug << "OCSP certificate hash already found, over-writing!";
 
-                    // Discard previous content
-                    std::ofstream fs(out_path_data.c_str(), std::ios::trunc);
-                    fs << ocsp_response;
+                    // Discard previous content, write decoded DER binary
+                    std::ofstream fs(out_path_data.c_str(), std::ios::trunc | std::ios::binary);
+                    fs.write(reinterpret_cast<const char*>(decoded_response.data()), decoded_response.size());
                     fs.close();
 
                     updated_hash = true;
@@ -1275,10 +1282,10 @@ void EvseSecurity::update_ocsp_cache(const CertificateHashData& certificate_hash
                     const auto ocsp_file_path = (ocsp_path / name) += DER_EXTENSION;
                     const auto hash_file_path = (ocsp_path / name) += CERT_HASH_EXTENSION;
 
-                    // Write out OCSP data
+                    // Write out OCSP data as decoded DER binary
                     try {
-                        std::ofstream fs(ocsp_file_path.c_str());
-                        fs << ocsp_response;
+                        std::ofstream fs(ocsp_file_path.c_str(), std::ios::binary);
+                        fs.write(reinterpret_cast<const char*>(decoded_response.data()), decoded_response.size());
                         fs.close();
                     } catch (const std::exception& e) {
                         EVLOG_error << "Could not write OCSP certificate data!";
