@@ -740,8 +740,23 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
                 }
             }
 
-            // TODO(ioan): properly rename key path here for fast retrieval
-            // @see 'get_private_key_path_of_certificate' and 'get_certificate_path_of_key'
+            // Rename the private key file to share the same stem as the cert file,
+            // so that filename-based key lookups (pre-generation orphan cleanup,
+            // get_private_key_path_of_certificate fast path, old-cert cleanup below)
+            // can correctly associate keys with their certificates.
+            {
+                const fs::path new_key_path = key_path / (file_path.stem().string() +
+                                                          private_key_path.extension().string());
+                if (new_key_path != private_key_path) {
+                    try {
+                        fs::rename(private_key_path, new_key_path);
+                        EVLOG_info << "Renamed key to match cert: " << private_key_path.filename()
+                                   << " -> " << new_key_path.filename();
+                    } catch (const fs::filesystem_error& e) {
+                        EVLOG_warning << "Could not rename key to match cert: " << e.what();
+                    }
+                }
+            }
 
             // Clean up old certificates from the same trust chain (same root CA).
             // Per ISO 15118 / auditor requirements: shall not store more than one
@@ -758,12 +773,8 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
 
                 // Find the root CA that issued the new leaf certificate
                 auto new_leaf_root = hierarchy.find_certificate_root(leaf_certificate);
-                std::string new_root_issuer;
-                if (new_leaf_root.has_value()) {
-                    new_root_issuer = new_leaf_root.value().get_common_name();
-                }
 
-                if (!new_root_issuer.empty()) {
+                if (new_leaf_root.has_value()) {
                     // Scan for other leaf certs from the same root and delete them
                     all_leafs.for_each_chain(
                         [&](const fs::path& existing_file, const std::vector<X509Wrapper>& chain) {
@@ -778,13 +789,15 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
                                 return true;
                             }
 
-                            // Check if this cert chains to the same root
+                            // Check if this cert chains to the same root CA by certificate
+                            // identity (DER comparison), not by Common Name — distinct root
+                            // CAs may share a CN (e.g. during root CA rotation).
                             auto existing_root = hierarchy.find_certificate_root(existing_leaf);
                             if (existing_root.has_value() &&
-                                existing_root.value().get_common_name() == new_root_issuer) {
+                                existing_root.value() == new_leaf_root.value()) {
 
-                                EVLOG_info << "Deleting old leaf cert from same root ('"
-                                           << new_root_issuer << "'): " << existing_file;
+                                EVLOG_info << "Deleting old leaf cert from same root: "
+                                           << existing_file;
 
                                 // Try to find and delete the old cert's private key.
                                 // Check for both .key and .tkey files by name before calling
