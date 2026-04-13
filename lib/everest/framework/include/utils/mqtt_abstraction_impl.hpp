@@ -17,8 +17,8 @@
 #include <everest/io/event/fd_event_handler.hpp>
 #include <everest/io/event/timer_fd.hpp>
 #include <everest/io/mqtt/mqtt_client.hpp>
-#include <everest/util/queue/simple_queue.hpp>
 #include <everest/util/async/monitor.hpp>
+#include <everest/util/queue/simple_queue.hpp>
 #include <utils/config/mqtt_settings.hpp>
 #include <utils/message_handler.hpp>
 #include <utils/message_queue.hpp>
@@ -74,7 +74,7 @@ public:
     static bool check_topic_matches(const std::string& full_topic, const std::string& wildcard_topic);
 
 private:
-    template<class T> using monitor = everest::lib::util::monitor<T>;
+    template <class T> using monitor = everest::lib::util::monitor<T>;
     using shared_messages = std::vector<std::shared_ptr<MessageWithQOS>>;
     struct Topics {
         std::vector<std::string> retained_topics;
@@ -88,7 +88,6 @@ private:
 
     monitor<shared_messages> messages_before_connected;
     monitor<Topics> managed_topics;
-
 
     Thread mqtt_mainloop_thread;
     std::shared_future<void> main_loop_future;

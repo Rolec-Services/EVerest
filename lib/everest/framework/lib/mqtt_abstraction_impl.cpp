@@ -304,7 +304,6 @@ nlohmann::json MQTTAbstractionImpl::get_internal(const MQTTRequest& request) {
         return res_future.get();
     }
 
-
     return json{};
 }
 

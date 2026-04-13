@@ -35,7 +35,6 @@ struct ParsedMessage {
 
 using MessageCallback = std::function<void(const Message&)>;
 
-
 } // namespace Everest
 
 #endif // UTILS_MESSAGE_QUEUE_HPP
