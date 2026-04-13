@@ -5,8 +5,11 @@
 #include <evse_security/crypto/interface/crypto_types.hpp>
 #include <evse_security/utils/evse_filesystem_types.hpp>
 
+#include <cstddef>
 #include <optional>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace evse_security {
 
@@ -83,7 +86,49 @@ public:
     /// @return true if successful or not a .tkey file, false on HSM deletion error
     static bool delete_hsm_key_if_tkey(const fs::path& key_path);
 
+    /// @brief Delete HSM private key objects that have no corresponding .tkey file on disk
+    ///
+    /// Enumerates all CKO_PRIVATE_KEY objects on the configured token, then scans the
+    /// provided key directories for .tkey files and extracts the embedded PKCS#11 label
+    /// from each. Any HSM key whose label is not referenced by any .tkey file is treated
+    /// as an orphan (e.g. from a process crash between key generation and .tkey write) and
+    /// is deleted from the HSM. Safe to call at startup; fails safe if the HSM is unreachable.
+    ///
+    /// @param key_directories List of filesystem directories to scan for .tkey files
+    static void delete_hsm_orphaned_keys(const std::vector<fs::path>& key_directories);
+
+    /// @brief Ensure the configured HSM token exists and is initialised
+    ///
+    /// Checks whether a token with the configured label exists on the configured slot.
+    /// If the token is not yet initialised, calls C_InitToken followed by C_InitPIN
+    /// to prepare the token for use, using the configured PIN as both the SO PIN
+    /// and the user PIN.
+    ///
+    /// This should be called once at startup, after set_config(). Throws
+    /// std::runtime_error if the slot cannot be accessed or token initialisation fails.
+    static void ensure_token_initialised();
+
+    /// @brief Count the number of private key objects currently stored on the configured HSM token
+    ///
+    /// Opens a PKCS#11 session on the configured slot and searches for all CKO_PRIVATE_KEY
+    /// objects without any label filter, returning the total count. This is used by
+    /// is_filesystem_full() to determine whether HSM-side garbage collection should be triggered.
+    ///
+    /// @return The number of CKO_PRIVATE_KEY objects on the token, or std::nullopt if the HSM
+    ///         is unreachable or any PKCS#11 operation fails (fail-safe: GC is not triggered)
+    static std::optional<std::size_t> count_keys_on_token();
+
 private:
+    /// @brief Enumerate the labels of all CKO_PRIVATE_KEY objects on the configured token
+    ///
+    /// Opens a PKCS#11 session and retrieves the CKA_LABEL attribute of every private key
+    /// object found on the token using a two-pass C_GetAttributeValue call (length query
+    /// followed by value retrieval). Used internally by delete_hsm_orphaned_keys().
+    ///
+    /// @return Set of label strings, or std::nullopt if the HSM is unreachable or any
+    ///         PKCS#11 operation fails
+    static std::optional<std::set<std::string>> get_hsm_key_labels();
+
     static PKCS11Config s_config;
 };
 

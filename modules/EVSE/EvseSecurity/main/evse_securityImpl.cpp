@@ -6,6 +6,9 @@
 
 #include <evse_security/crypto/openssl/openssl_pkcs11_helper.hpp>
 
+#include <filesystem>
+#include <fstream>
+
 namespace module {
 namespace main {
 
@@ -32,16 +35,52 @@ void evse_securityImpl::init() {
     if (this->mod->config.max_certificate_entries > 0) {
         max_certificate_entries = static_cast<std::uintmax_t>(this->mod->config.max_certificate_entries);
     }
+    std::optional<std::uintmax_t> max_hsm_key_entries = std::nullopt;
+    if (this->mod->config.max_hsm_key_entries > 0) {
+        max_hsm_key_entries = static_cast<std::uintmax_t>(this->mod->config.max_hsm_key_entries);
+    }
 
-    this->evse_security = std::make_unique<evse_security::EvseSecurity>(file_paths, private_key_password,
-                                                                        max_fs_usage_bytes, max_certificate_entries);
-
+    // Configure the PKCS#11 helper BEFORE constructing EvseSecurity, because the
+    // constructor calls delete_hsm_orphaned_keys() which needs a valid PKCS#11 config.
     evse_security::PKCS11Config pkcs11_config;
     pkcs11_config.module_path = this->mod->config.pkcs11_module_path;
     pkcs11_config.slot = this->mod->config.pkcs11_slot;
     pkcs11_config.token = this->mod->config.pkcs11_token;
     pkcs11_config.pin = this->mod->config.pkcs11_pin;
     evse_security::PKCS11Helper::set_config(pkcs11_config);
+
+    // Ensure the configured HSM token exists and is initialised. Only runs when a PKCS#11
+    // module path has been configured (i.e. HSM is in use). This must happen before
+    // EvseSecurity construction (which runs orphan cleanup at startup).
+    // Throws std::runtime_error on failure — EVerest will not start without a working HSM token.
+    if (!pkcs11_config.module_path.empty()) {
+        evse_security::PKCS11Helper::ensure_token_initialised();
+
+        // Sync the PIN to the OpenSSL pkcs11-provider PIN file (configured in openssl.cnf as
+        // pkcs11-module-token-pin = file:/etc/pki/pin.txt). Without this, if the file is stale
+        // or missing, the provider falls back to prompting stdin — which stalls EVerest.
+        // ensure_token_initialised() has already verified the PIN is correct via C_Login before
+        // we reach this point, so it is safe to write.
+        static const std::string pkcs11_pin_file = "/etc/pki/pin.txt";
+        {
+            std::ofstream pin_file(pkcs11_pin_file, std::ios::trunc);
+            if (!pin_file) {
+                throw std::runtime_error("Failed to open PKCS#11 PIN file for writing: " + pkcs11_pin_file);
+            }
+            pin_file << pkcs11_config.pin;
+            if (!pin_file) {
+                throw std::runtime_error("Failed to write PKCS#11 PIN file: " + pkcs11_pin_file);
+            }
+        }
+        std::filesystem::permissions(pkcs11_pin_file,
+                                     std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write,
+                                     std::filesystem::perm_options::replace);
+    }
+
+    this->evse_security = std::make_unique<evse_security::EvseSecurity>(file_paths, private_key_password,
+                                                                        max_fs_usage_bytes, max_certificate_entries,
+                                                                        std::nullopt, std::nullopt, max_hsm_key_entries);
 }
 
 void evse_securityImpl::ready() {

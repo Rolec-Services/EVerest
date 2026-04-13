@@ -34,6 +34,7 @@ struct Conf {
     int pkcs11_slot;
     std::string pkcs11_pin;
     int max_certificate_entries;
+    int max_hsm_key_entries;
 };
 
 class EvseSecurity : public Everest::ModuleBase {

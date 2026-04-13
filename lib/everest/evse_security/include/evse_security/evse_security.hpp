@@ -64,6 +64,8 @@ struct CertificateQueryParams {
 static constexpr std::size_t DEFAULT_MINIMUM_CERTIFICATE_ENTRIES = 10;
 // Default maximum certificate entries (sensible for embedded EVSE with HSM-backed keys)
 static constexpr std::uintmax_t DEFAULT_MAX_CERTIFICATE_ENTRIES = 40;
+// Default maximum HSM private key entries before garbage collection is triggered
+static constexpr std::uintmax_t DEFAULT_MAX_HSM_KEY_ENTRIES = 10;
 
 // Expiry for CSRs that did not receive a response CSR, 60 minutes
 static constexpr std::chrono::seconds DEFAULT_CSR_EXPIRY(3600);
@@ -88,11 +90,14 @@ public:
     /// 'DEFAULT_CSR_EXPIRY'
     /// @param garbage_collect_time optional garbage collect time. How often we will delete expired CSRs and
     /// certificates. Defaults to 'DEFAULT_GARBAGE_COLLECT_TIME'
+    /// @param max_hsm_key_entries optional maximum number of private key objects on the HSM token before garbage
+    /// collection is triggered. Defaults to 'DEFAULT_MAX_HSM_KEY_ENTRIES'
     EvseSecurity(const FilePaths& file_paths, const std::optional<std::string>& private_key_password = std::nullopt,
                  const std::optional<std::uintmax_t>& max_fs_usage_bytes = std::nullopt,
                  const std::optional<std::uintmax_t>& max_fs_certificate_store_entries = std::nullopt,
                  const std::optional<std::chrono::seconds>& csr_expiry = std::nullopt,
-                 const std::optional<std::chrono::seconds>& garbage_collect_time = std::nullopt);
+                 const std::optional<std::chrono::seconds>& garbage_collect_time = std::nullopt,
+                 const std::optional<std::uintmax_t>& max_hsm_key_entries = std::nullopt);
 
     /// @brief Destructor
     ~EvseSecurity();
@@ -342,6 +347,8 @@ private:
     std::uintmax_t max_fs_usage_bytes;
     // Maximum filesystem certificate entries
     std::uintmax_t max_fs_certificate_store_entries;
+    // Maximum HSM private key entries before GC is triggered
+    std::uintmax_t max_hsm_key_entries;
     // Default csr expiry in seconds
     std::chrono::seconds csr_expiry;
     // Default time to garbage collect

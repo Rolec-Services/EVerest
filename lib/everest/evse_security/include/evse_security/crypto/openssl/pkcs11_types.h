@@ -18,6 +18,7 @@ typedef unsigned long int CK_ULONG;
 typedef unsigned char CK_BYTE;
 typedef unsigned char CK_BBOOL;
 typedef unsigned char CK_UTF8CHAR;
+typedef CK_BYTE CK_CHAR;
 typedef CK_ULONG CK_RV;
 typedef CK_ULONG CK_FLAGS;
 typedef CK_ULONG CK_SLOT_ID;
@@ -28,6 +29,34 @@ typedef CK_ULONG CK_ATTRIBUTE_TYPE;
 typedef CK_ULONG CK_USER_TYPE;
 typedef void* CK_VOID_PTR;
 typedef CK_RV (*CK_NOTIFY)(CK_SESSION_HANDLE session, CK_ULONG event, CK_VOID_PTR pApplication);
+
+// Version structure
+typedef struct CK_VERSION {
+    CK_BYTE major;
+    CK_BYTE minor;
+} CK_VERSION;
+
+// Token information structure (for C_GetTokenInfo)
+typedef struct CK_TOKEN_INFO {
+    CK_UTF8CHAR label[32];
+    CK_UTF8CHAR manufacturerID[32];
+    CK_UTF8CHAR model[16];
+    CK_UTF8CHAR serialNumber[16];
+    CK_FLAGS    flags;
+    CK_ULONG    ulMaxSessionCount;
+    CK_ULONG    ulSessionCount;
+    CK_ULONG    ulMaxRwSessionCount;
+    CK_ULONG    ulRwSessionCount;
+    CK_ULONG    ulMaxPinLen;
+    CK_ULONG    ulMinPinLen;
+    CK_ULONG    ulTotalPublicMemory;
+    CK_ULONG    ulFreePublicMemory;
+    CK_ULONG    ulTotalPrivateMemory;
+    CK_ULONG    ulFreePrivateMemory;
+    CK_VERSION  hardwareVersion;
+    CK_VERSION  firmwareVersion;
+    CK_CHAR     utcTime[16];
+} CK_TOKEN_INFO;
 
 // Attribute structure
 typedef struct CK_ATTRIBUTE {
@@ -46,7 +75,12 @@ typedef struct CK_ATTRIBUTE {
 #define CKF_SERIAL_SESSION (1UL << 2)
 
 // User types
+#define CKU_SO   0UL
 #define CKU_USER 1UL
+
+// Token flags
+#define CKF_TOKEN_INITIALIZED    0x00000400UL
+#define CKF_USER_PIN_INITIALIZED 0x00000008UL
 
 // Object classes
 #define CKO_PUBLIC_KEY 2UL
@@ -72,7 +106,13 @@ typedef CK_RV (*PFN_C_FindObjectsInit)(CK_SESSION_HANDLE hSession, CK_ATTRIBUTE*
 typedef CK_RV (*PFN_C_FindObjects)(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE* phObject,
                                    CK_ULONG ulMaxObjectCount, CK_ULONG* pulObjectCount);
 typedef CK_RV (*PFN_C_FindObjectsFinal)(CK_SESSION_HANDLE hSession);
+typedef CK_RV (*PFN_C_GetAttributeValue)(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject,
+                                         CK_ATTRIBUTE* pTemplate, CK_ULONG ulCount);
 typedef CK_RV (*PFN_C_DestroyObject)(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject);
+typedef CK_RV (*PFN_C_GetSlotList)(CK_BBOOL tokenPresent, CK_SLOT_ID* pSlotList, CK_ULONG* pulCount);
+typedef CK_RV (*PFN_C_GetTokenInfo)(CK_SLOT_ID slotID, CK_TOKEN_INFO* pInfo);
+typedef CK_RV (*PFN_C_InitToken)(CK_SLOT_ID slotID, CK_UTF8CHAR* pPin, CK_ULONG ulPinLen, CK_UTF8CHAR* pLabel);
+typedef CK_RV (*PFN_C_InitPIN)(CK_SESSION_HANDLE hSession, CK_UTF8CHAR* pPin, CK_ULONG ulPinLen);
 
 #ifdef __cplusplus
 }

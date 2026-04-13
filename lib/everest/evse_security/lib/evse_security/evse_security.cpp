@@ -304,14 +304,16 @@ EvseSecurity::EvseSecurity(const FilePaths& file_paths, const std::optional<std:
                            const std::optional<std::uintmax_t>& max_fs_usage_bytes,
                            const std::optional<std::uintmax_t>& max_fs_certificate_store_entries,
                            const std::optional<std::chrono::seconds>& csr_expiry,
-                           const std::optional<std::chrono::seconds>& garbage_collect_time) :
+                           const std::optional<std::chrono::seconds>& garbage_collect_time,
+                           const std::optional<std::uintmax_t>& max_hsm_key_entries) :
     private_key_password(private_key_password),
     directories(file_paths.directories),
     links(file_paths.links),
     max_fs_usage_bytes(max_fs_usage_bytes.value_or(0)),
     max_fs_certificate_store_entries(max_fs_certificate_store_entries.value_or(DEFAULT_MAX_CERTIFICATE_ENTRIES)),
     csr_expiry(csr_expiry.value_or(DEFAULT_CSR_EXPIRY)),
-    garbage_collect_time(garbage_collect_time.value_or(DEFAULT_GARBAGE_COLLECT_TIME)) {
+    garbage_collect_time(garbage_collect_time.value_or(DEFAULT_GARBAGE_COLLECT_TIME)),
+    max_hsm_key_entries(max_hsm_key_entries.value_or(DEFAULT_MAX_HSM_KEY_ENTRIES)) {
     static_assert(sizeof(std::uint8_t) == 1, "uint8_t not equal to 1 byte!");
 
     const std::vector<fs::path> dirs = {
@@ -358,6 +360,17 @@ EvseSecurity::EvseSecurity(const FilePaths& file_paths, const std::optional<std:
             }
         }
     }
+
+    // On startup, delete any HSM private keys that have no corresponding .tkey file on disk.
+    // This recovers from the crash window between generate_key_in_hsm() succeeding and
+    // write_pkcs11_uri_pem_file() writing the .tkey file — a scenario that is otherwise
+    // invisible to all filesystem-driven GC logic.
+#ifdef USING_CUSTOM_PROVIDER
+    PKCS11Helper::delete_hsm_orphaned_keys({
+        this->directories.csms_leaf_key_directory,
+        this->directories.secc_leaf_key_directory
+    });
+#endif
 
     // Start GC timer
     garbage_collect_timer.interval([this]() { this->garbage_collect(); }, this->garbage_collect_time);
@@ -2654,6 +2667,19 @@ bool EvseSecurity::is_filesystem_full() {
                       << " total entries";
         return true;
     }
+
+#ifdef USING_CUSTOM_PROVIDER
+    // Also trigger GC if the HSM token is holding more private keys than the configured threshold.
+    // If the HSM is unreachable (nullopt), we fail safe and do not trigger GC.
+    const auto hsm_key_count = PKCS11Helper::count_keys_on_token();
+    if (hsm_key_count.has_value()) {
+        EVLOG_debug << "HSM private key count: " << hsm_key_count.value();
+        if (hsm_key_count.value() > max_hsm_key_entries) {
+            EVLOG_warning << "HSM key count " << hsm_key_count.value() << " exceeds threshold " << max_hsm_key_entries;
+            return true;
+        }
+    }
+#endif
 
     return false;
 }
