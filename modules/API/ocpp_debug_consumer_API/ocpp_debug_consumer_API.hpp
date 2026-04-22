@@ -12,10 +12,7 @@
 #include "ld-ev.hpp"
 
 // headers for provided interface implementations
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include <generated/interfaces/generic_error/Implementation.hpp>
-#pragma GCC diagnostic pop
 
 // headers for required interface implementations
 #include <generated/interfaces/ocpp/Interface.hpp>
@@ -27,7 +24,6 @@
 #include <everest_api_types/utilities/Topics.hpp>
 
 namespace ev_API = everest::lib::API;
-
 // ev@4bf81b14-a215-475c-a1d3-0a484ae48918:v1
 
 namespace module {
@@ -48,11 +44,10 @@ public:
         mqtt(mqtt_provider),
         p_generic_error(std::move(p_generic_error)),
         r_ocpp_debug(std::move(r_ocpp_debug)),
-        config(config),
-        comm_check("generic/CommunicationFault", "Bridge to implementation connection lost", this->p_generic_error){};
+        config(config){};
 
     Everest::MqttProvider& mqtt;
-    const std::shared_ptr<generic_errorImplBase> p_generic_error;
+    const std::unique_ptr<generic_errorImplBase> p_generic_error;
     const std::unique_ptr<ocpp_debugIntf> r_ocpp_debug;
     const Conf& config;
 
@@ -85,7 +80,8 @@ private:
     void setup_heartbeat_generator();
 
     ev_API::Topics topics;
-    ev_API::CommCheckHandler<generic_errorImplBase> comm_check;
+    ev_API::CommCheckHandler<generic_errorImplBase> comm_check{
+        "generic/CommunicationFault", "Bridge to implementation connection lost", p_generic_error};
 
     size_t hb_id{0};
     // ev@211cfdbe-f69a-4cd6-a4ec-f8aaa3d1b6c8:v1
