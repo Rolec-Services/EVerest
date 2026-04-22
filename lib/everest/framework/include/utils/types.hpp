@@ -103,7 +103,6 @@ struct MqttMessagePayload {
     MqttMessageType type; ///< The type of the MQTT message
     json data;            ///< The data of the MQTT message
     MqttMessagePayload() = delete;
-    // MqttMessagePayload(MqttMessageType type_, json data_) : type(type_), data(std::move(data_)){};
     template <typename T, typename = typename std::enable_if<std::is_convertible<T, json>::value>::type>
     MqttMessagePayload(MqttMessageType type_, T&& data_) : type(type_), data(std::forward<T>(data_)) {
     }

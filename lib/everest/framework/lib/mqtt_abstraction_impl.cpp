@@ -60,7 +60,6 @@ MessageWithQOS::MessageWithQOS(const std::string& topic, const std::string& payl
 }
 
 MQTTAbstractionImpl::MQTTAbstractionImpl(const MQTTSettings& mqtt_settings) :
-    //    message_queue(([this](const Message& message) { this->on_mqtt_message(message); })),
     mqtt_everest_prefix(mqtt_settings.everest_prefix),
     mqtt_external_prefix(mqtt_settings.external_prefix),
     running(true) {
