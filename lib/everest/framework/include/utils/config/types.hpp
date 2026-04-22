@@ -8,6 +8,7 @@
 #include <map>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <set>
 #include <string>
 #include <variant>
 #include <vector>
@@ -105,6 +106,7 @@ using ImplementationIdentifier = std::string;
 using ModuleConnections = std::map<RequirementId, std::vector<Fulfillment>, std::less<>>;
 using ModuleConfigurations = std::map<ModuleId, ModuleConfig, std::less<>>;
 using ModuleConfigurationParameters = std::map<ImplementationIdentifier, std::vector<ConfigurationParameter>>;
+using Keys = std::set<std::string, std::less<>>;
 
 struct VisitConfigEntry {
     std::string operator()(const std::string& value) const {

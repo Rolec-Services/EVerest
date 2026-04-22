@@ -134,7 +134,7 @@ json get_serialized_module_config(std::string_view module_id, const ModuleConfig
     }
     const auto module_mapping = module_config.mapping;
     serialized_mod_config["mappings"][module_id] = module_mapping;
-    const auto telemetry_config = module_config.telemetry_config;
+    const auto& telemetry_config = module_config.telemetry_config;
     if (telemetry_config.has_value()) {
         serialized_mod_config["telemetry_config"] = telemetry_config.value();
     }
@@ -184,7 +184,7 @@ ParsedConfigMap parse_config_map(const json& config_map_schema,
     }
 
     std::set<std::string> unknown_config_entries;
-    const std::set<std::string, std::less<>> config_map_schema_keys = Config::keys(config_map_schema);
+    const everest::config::Keys& config_map_schema_keys = Config::keys(config_map_schema);
 
     std::set_difference(config_map_keys.begin(), config_map_keys.end(), config_map_schema_keys.begin(),
                         config_map_schema_keys.end(),
@@ -648,7 +648,7 @@ void ManagerConfig::load_and_validate_manifest(ModuleConfig& module_config) {
         }
     }
 
-    const std::set<std::string, std::less<>> provided_impls = Config::keys(this->manifests[module_name]["provides"]);
+    const everest::config::Keys& provided_impls = Config::keys(this->manifests[module_name]["provides"]);
 
     this->interfaces[module_name] = json({});
 
@@ -922,7 +922,7 @@ void ManagerConfig::resolve_all_requirements() {
             module_config_connections_set.insert(req_id);
         }
         std::set<std::string> unknown_requirement_entries;
-        const std::set<std::string, std::less<>> manifest_module_requires_set =
+        const everest::config::Keys& manifest_module_requires_set =
             Config::keys(this->manifests[module_config.module_name]["requires"]);
 
         std::set_difference(module_config_connections_set.begin(), module_config_connections_set.end(),
@@ -1483,8 +1483,7 @@ json Config::get_interface_definition(std::string_view interface_name) const {
 void Config::populate_module_config_cache() {
     for (const auto& [module_id, module_name] : this->module_names) {
         this->module_config_cache[module_name] = ConfigCache();
-        const std::set<std::string, std::less<>> provided_impls =
-            Config::keys(this->manifests.at(module_name).at("provides"));
+        const everest::config::Keys& provided_impls = Config::keys(this->manifests.at(module_name).at("provides"));
         this->interfaces[module_name] = json({});
         this->module_config_cache[module_name].provides_impl = provided_impls;
         for (const auto& impl_id : provided_impls) {
@@ -1569,10 +1568,10 @@ json Config::load_all_manifests(std::string_view modules_dir, std::string_view s
     return manifests;
 }
 
-std::set<std::string, std::less<>> Config::keys(const json& object) {
+everest::config::Keys Config::keys(const json& object) {
     BOOST_LOG_FUNCTION();
 
-    std::set<std::string, std::less<>> keys;
+    everest::config::Keys keys;
     if (!object.is_object()) {
         if (object.is_null() || object.empty()) {
             // if the object is null we should return an empty set

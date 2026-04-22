@@ -392,7 +392,7 @@ public:
     /// \brief Extracts the keys of the provided json \p object
     ///
     /// \returns a set of object keys
-    static std::set<std::string, std::less<>> keys(const nlohmann::json& object);
+    static everest::config::Keys keys(const nlohmann::json& object);
 };
 } // namespace Everest
 
