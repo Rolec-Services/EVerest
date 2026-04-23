@@ -19,6 +19,7 @@
 
 // ev@4bf81b14-a215-475c-a1d3-0a484ae48918:v1
 // insert your custom include headers here
+#include <mutex>
 #include <set>
 // ev@4bf81b14-a215-475c-a1d3-0a484ae48918:v1
 
@@ -73,16 +74,18 @@ struct Conf {
 class OCPPExtensionExample : public Everest::ModuleBase, public RwConfUpdate {
 public:
     OCPPExtensionExample() = delete;
-    OCPPExtensionExample(const ModuleInfo& info, std::unique_ptr<ocpp_data_transferImplBase> p_data_transfer,
-                         std::unique_ptr<ocppIntf> r_ocpp, std::unique_ptr<ocpp_data_transferIntf> r_data_transfer,
-                         Conf& config, RwConf& rw_config) :
+    OCPPExtensionExample(const ModuleInfo& info, Everest::MqttProvider& mqtt_provider,
+                         std::unique_ptr<ocpp_data_transferImplBase> p_data_transfer, std::unique_ptr<ocppIntf> r_ocpp,
+                         std::unique_ptr<ocpp_data_transferIntf> r_data_transfer, Conf& config, RwConf& rw_config) :
         ModuleBase(info),
+        mqtt(mqtt_provider),
         p_data_transfer(std::move(p_data_transfer)),
         r_ocpp(std::move(r_ocpp)),
         r_data_transfer(std::move(r_data_transfer)),
         config(config),
         rw_config(rw_config){};
 
+    Everest::MqttProvider& mqtt;
     const std::unique_ptr<ocpp_data_transferImplBase> p_data_transfer;
     const std::unique_ptr<ocppIntf> r_ocpp;
     const std::unique_ptr<ocpp_data_transferIntf> r_data_transfer;
@@ -100,6 +103,7 @@ protected:
     // ev@4714b2ab-a24f-4b95-ab81-36439e1478de:v1
     // insert your protected definitions here
     std::set<std::string> monitored_keys;
+    std::mutex mutex;
 
     void event_keys_to_monitor();
     void event_key_updated(const types::ocpp::EventData& event_data);

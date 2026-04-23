@@ -4,7 +4,6 @@
 #pragma once
 
 #include <framework/ModuleAdapter.hpp>
-#include <string>
 #include <utils/error/error_database.hpp>
 #include <utils/error/error_database_map.hpp>
 #include <utils/error/error_manager_req_global.hpp>
@@ -13,13 +12,13 @@
 
 #include <ld-ev.hpp>
 
-#include <list>
+#include <deque>
 #include <map>
 #include <memory>
+#include <string>
 #include <string_view>
-#include <vector>
 
-namespace stubs {
+namespace module::stub {
 
 class MQTTStub : public Everest::MQTTAbstraction {
 private:
@@ -36,8 +35,11 @@ public:
         std::string topic;
         std::string msg;
     };
+    using log_t = std::deque<publish_log_t>;
 
-    std::vector<publish_log_t> publish_log;
+    MQTTStub() = default;
+
+    log_t publish_log{};
 
     void clear() {
         publish_log.clear();
@@ -52,20 +54,16 @@ public:
     void disconnect() override {
     }
     void publish(const std::string& topic, const json& json) override {
-        // topics published from the module
-        auto msg = json.dump();
-        std::printf("publish(%s) %s\n", topic.c_str(), msg.c_str());
-        publish_log.push_back({topic, std::move(msg)});
+        auto data = json.dump();
+        publish(topic, data);
     }
     void publish(const std::string& topic, const json& json, QOS qos, bool retain = false) override {
         publish(topic, json);
     }
     void publish(const std::string& topic, const std::string& data) override {
-        try {
-            const auto obj = json::parse(data);
-            publish(topic, obj);
-        } catch (...) {
-        }
+        // topics published from the module
+        std::printf("publish(%s) %s\n", topic.c_str(), data.c_str());
+        publish_log.push_back({topic, data});
     }
     void publish(const std::string& topic, const std::string& data, QOS qos, bool retain = false) override {
         publish(topic, data);
@@ -134,14 +132,6 @@ public:
         topic += "modules/";
         topic += id;
         topic += "/config/set_request";
-        // json obj = R"({
-        //     "identifier": {
-        //       "module_id": "",
-        //       "configuration_parameter_name": ""
-        //     },
-        //     "value": ""
-        // }
-        // )"_json;
         Everest::config::SetRequest req;
         req.identifier.module_id = id;
         req.identifier.configuration_parameter_name = name;
@@ -298,7 +288,7 @@ public:
         m_mqtt->clear();
     }
 
-    const auto& get_module_publish_log() const {
+    const MQTTStub::log_t& get_module_publish_log() {
         return m_mqtt->publish_log;
     }
 
@@ -378,98 +368,4 @@ public:
     }
 };
 
-class OCPPExtensionExampleStub : public ExtendedModuleAdapter::Hooks {
-private:
-    using CallCallback = Result (OCPPExtensionExampleStub::*)(const Parameters& value);
-
-    ExtendedModuleAdapter& m_adapter;
-    std::map<std::string, CallCallback> m_call_callbacks;
-
-public:
-    OCPPExtensionExampleStub(ExtendedModuleAdapter& adapter) : m_adapter(adapter) {
-        // register calls expected to be made by the module
-        m_call_callbacks.emplace("data_transfer", &OCPPExtensionExampleStub::request_data_transfer);
-        m_call_callbacks.emplace("get_variables", &OCPPExtensionExampleStub::request_get_variables);
-        m_call_callbacks.emplace("set_variables", &OCPPExtensionExampleStub::request_set_variables);
-        m_call_callbacks.emplace("monitor_variables", &OCPPExtensionExampleStub::request_monitor_variables);
-        m_adapter.set_handler(this);
-    }
-
-    virtual ~OCPPExtensionExampleStub() {
-        m_adapter.set_handler(nullptr);
-    }
-
-    // ========================================================================
-    // call implementations provided by the module
-
-    json call_fn(const std::string& topic, const json& value) override {
-        json result;
-        if (auto it = m_call_callbacks.find(topic); it != m_call_callbacks.end()) {
-            result = std::invoke(it->second, this, value);
-        } else {
-            std::printf("call_fn(%s)\n", topic.c_str());
-        }
-        return result;
-    }
-
-    auto call_data_transfer(const json& args) {
-        return m_adapter.call("data_transfer", args);
-    }
-
-    void var_event_data(const types::ocpp::EventData& data) {
-        json obj = data;
-        m_adapter.mqtt_publish(HandlerType::SubscribeVar, "everest/event_data", obj);
-    }
-
-protected:
-    // ========================================================================
-    // call implementations (requests from the module under test)
-
-    virtual std::optional<json> request_monitor_variables(const json& value) {
-        std::printf("request_monitor_variables(%s)\n", value.dump().c_str());
-        return {};
-    }
-    virtual std::optional<json> request_set_variables(const json& value) {
-        std::printf("request_set_variables(%s)\n", value.dump().c_str());
-        const json res = R"(
-        {
-            "status":"Accepted",
-            "component_variable":{"component":{"name":""},"variable":{"name":"ExampleConfigurationKey"}},
-            "value":""
-        }
-        )"_json;
-        json result;
-        result.push_back(res);
-        result.push_back(res);
-        std::printf("request_set_variables result(%s)\n", result.dump().c_str());
-        return result;
-    }
-
-    virtual std::optional<json> request_get_variables(const json& value) {
-        std::printf("request_get_variables(%s)\n", value.dump().c_str());
-        const json res = R"(
-        {
-            "status":"Accepted",
-            "component_variable":{"component":{"name":""},"variable":{"name":"ExampleConfigurationKey"}},
-            "value":""
-        }
-        )"_json;
-        json result;
-        result.push_back(res);
-        std::printf("request_get_variables result(%s)\n", result.dump().c_str());
-        return result;
-    }
-
-    virtual std::optional<json> request_data_transfer(const json& value) {
-        std::printf("request_data_transfer(%s)\n", value.dump().c_str());
-        const json result = R"(
-        {
-            "status":"Rejected"
-        }
-        )"_json;
-        std::printf("request_data_transfer result(%s)\n", result.dump().c_str());
-        return result;
-    }
-};
-
-} // namespace stubs
+} // namespace module::stub

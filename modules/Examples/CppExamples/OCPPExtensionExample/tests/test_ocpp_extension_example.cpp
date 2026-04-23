@@ -6,8 +6,8 @@
 #include <string_view>
 
 #include "OCPPExtensionExample.hpp"
-#include "extended_module_adapter.hpp"
 #include "generated/types/ocpp.hpp"
+#include "module_stub.hpp"
 
 namespace {
 
@@ -26,7 +26,7 @@ class OCPPExtensionTest : public testing::Test {
 protected:
     // ld-ev.cpp has static objects with pointer to adapter
     // so it must be consistent for all tests
-    static stubs::ExtendedModuleAdapter adapter;
+    static module::stub::ExtendedModuleAdapter adapter;
 
     static void infrastructure_init() {
         static bool once{false};
@@ -42,7 +42,7 @@ protected:
 
     ModuleInfo module_info{"ocpp_extension", {}, "Apache-2.0", "ocpp_ext", {"/etc", "/libexec", "/share"}, false, false,
                            std::nullopt};
-    stubs::OCPPExtensionExampleStub module;
+    module::stub::OCPPExtensionExampleStub module;
 
     OCPPExtensionTest() : module(adapter) {
     }
@@ -54,9 +54,19 @@ protected:
 
     void TearDown() override {
     }
+
+    void publish_variable_updated(const std::string_view& name, const std::string& value) {
+        types::ocpp::EventData data;
+        data.component_variable.variable.name = name;
+        data.event_id = 0;
+        data.trigger = types::ocpp::EventTriggerEnum::Delta;
+        data.actual_value = value;
+        data.event_notification_type = types::ocpp::EventNotificationType::HardWiredNotification;
+        module.var_event_data(data);
+    }
 };
 
-stubs::ExtendedModuleAdapter OCPPExtensionTest::adapter;
+module::stub::ExtendedModuleAdapter OCPPExtensionTest::adapter;
 
 // ----------------------------------------------------------------------------
 // the tests
@@ -88,20 +98,28 @@ TEST_F(OCPPExtensionTest, DataTransfer2) {
 }
 
 TEST_F(OCPPExtensionTest, UpdateKeys) {
-    adapter.runtime_config_set("keys_to_monitor", "Heartbeat");
-    const auto log = adapter.get_module_publish_log();
+    publish_variable_updated("Heartbeat", "60");
+    // nothing published since no variables are being monitored
+    auto log = adapter.get_module_publish_log();
+    ASSERT_EQ(log.size(), 0);
+
+    adapter.runtime_config_set("keys_to_monitor", "Heartbeat,SecurityProfile");
+    log = adapter.get_module_publish_log();
     ASSERT_EQ(log.size(), 1);
     EXPECT_EQ(
         log[0].msg,
         R"({"data":{"response":{"status":"Accepted"},"status":"Ok","status_info":"","type":"Set"},"msg_type":"SetConfigResponse"})");
 
-    types::ocpp::EventData data;
-    data.component_variable.variable.name = "Heartbeat";
-    data.event_id = 0;
-    data.trigger = types::ocpp::EventTriggerEnum::Delta;
-    data.actual_value = "60";
-    data.event_notification_type = types::ocpp::EventNotificationType::HardWiredNotification;
-    module.var_event_data(data);
+    publish_variable_updated("SecurityProfile", "2");
+    // not expecting an additional publish
+    log = adapter.get_module_publish_log();
+    ASSERT_EQ(log.size(), 1);
+
+    publish_variable_updated("Heartbeat", "60");
+    // expecting an additional publish
+    log = adapter.get_module_publish_log();
+    ASSERT_EQ(log.size(), 2);
+    EXPECT_EQ(log[1].topic, "external/heartbeat-updated");
 }
 
 TEST_F(OCPPExtensionTest, RebootRequired) {

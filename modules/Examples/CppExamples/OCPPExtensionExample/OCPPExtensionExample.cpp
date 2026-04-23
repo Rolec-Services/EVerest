@@ -2,6 +2,7 @@
 // Copyright Pionix GmbH and Contributors to EVerest
 #include "OCPPExtensionExample.hpp"
 #include "everest/logging.hpp"
+#include <mutex>
 
 namespace module {
 using ConfigChangeResult = Everest::config::ConfigChangeResult;
@@ -79,6 +80,8 @@ void OCPPExtensionExample::ready() {
 }
 
 void OCPPExtensionExample::event_keys_to_monitor() {
+    std::scoped_lock lock(mutex);
+
     std::istringstream ss(config.keys_to_monitor);
     std::vector<types::ocpp::ComponentVariable> component_variables;
 
@@ -99,27 +102,37 @@ void OCPPExtensionExample::event_keys_to_monitor() {
 }
 
 void OCPPExtensionExample::event_key_updated(const types::ocpp::EventData& event_data) {
+    std::scoped_lock lock(mutex);
     if (config.enable) {
         const auto& name = event_data.component_variable.variable.name;
         const auto& value = event_data.actual_value;
         if (auto it = monitored_keys.find(name); it != monitored_keys.end()) {
             EVLOG_info << "Configuration key: " << name << " has been changed by CSMS to: " << value;
+            if (name == "Heartbeat") {
+                // publish externally over MQTT
+                mqtt.publish("heartbeat-updated", "");
+            }
         }
     }
 }
 
 ConfigChangeResult OCPPExtensionExample::on_enable_changed(const bool& value) {
+    std::scoped_lock lock(mutex);
     rw_config.enable = value;
     return ConfigChangeResult::Accepted();
 }
 
 ConfigChangeResult OCPPExtensionExample::on_id_changed(const int& value) {
+    std::scoped_lock lock(mutex);
     rw_config.id = value;
     return ConfigChangeResult::AcceptedRebootRequired();
 }
 
 ConfigChangeResult OCPPExtensionExample::on_keys_to_monitor_changed(const std::string& value) {
-    rw_config.keys_to_monitor = value;
+    {
+        std::scoped_lock lock(mutex);
+        rw_config.keys_to_monitor = value;
+    }
     event_keys_to_monitor();
     return ConfigChangeResult::Accepted();
 }

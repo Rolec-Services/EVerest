@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "OCPPExtensionExample.hpp"
-#include "extended_module_adapter.hpp"
+#include "module_stub.hpp"
 
 namespace {
 
@@ -20,8 +20,8 @@ namespace {
 // the static objects in ld-ev.cpp
 
 TEST(OCPPExtension, Setup) {
-    stubs::ExtendedModuleAdapter adapter;
-    stubs::OCPPExtensionExampleStub module(adapter);
+    module::stub::ExtendedModuleAdapter adapter;
+    module::stub::OCPPExtensionExampleStub module(adapter);
 
     ModuleInfo module_info{"ocpp_extension", {}, "Apache-2.0", "ocpp_ext", {"/etc", "/libexec", "/share"}, false, false,
                            std::nullopt};
