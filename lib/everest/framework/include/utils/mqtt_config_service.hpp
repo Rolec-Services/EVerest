@@ -16,26 +16,6 @@ namespace config {
 
 class ConfigServiceInterface; // defined in config_service_interface.hpp
 
-using ConfigValue = std::variant<std::monostate, std::string, double, int, bool>;
-
-struct ConfigChangeResult {
-    enum class Status {
-        Accepted,
-        Rejected
-    };
-
-    Status status;
-    std::string reason; ///< only meaningful when status == Rejected
-
-    static ConfigChangeResult Accepted() {
-        return {Status::Accepted, {}};
-    }
-
-    static ConfigChangeResult Rejected(const std::string& reason) {
-        return {Status::Rejected, reason};
-    }
-};
-
 constexpr auto MODULE_IMPLEMENTATION_ID = "!module";
 inline constexpr std::size_t mqtt_get_config_retries = 1;
 
@@ -140,6 +120,23 @@ struct ModuleIdType {
     std::string module_type; ///< The associated module type
 
     bool operator<(const ModuleIdType& rhs) const;
+};
+
+struct ConfigChangeResult {
+    SetResponseStatus status;
+    std::string reason; ///< only meaningful when status == Rejected
+
+    static ConfigChangeResult Accepted() {
+        return {SetResponseStatus::Accepted, {}};
+    }
+
+    static ConfigChangeResult AcceptedRebootRequired() {
+        return {SetResponseStatus::RebootRequired, {}};
+    }
+
+    static ConfigChangeResult Rejected(const std::string& reason) {
+        return {SetResponseStatus::Rejected, reason};
+    }
 };
 
 class ConfigServiceClient {

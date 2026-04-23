@@ -7,16 +7,10 @@ namespace module {
 using ConfigChangeResult = Everest::config::ConfigChangeResult;
 
 void OCPPExtensionExample::init() {
-    EVLOG_info << "init";
-    if (p_data_transfer) {
-        invoke_init(*p_data_transfer);
-    } else {
-        EVLOG_error << "No data transfer object";
-    }
+    invoke_init(*p_data_transfer);
 }
 
 void OCPPExtensionExample::ready() {
-    EVLOG_info << "ready";
     invoke_ready(*p_data_transfer);
     event_keys_to_monitor();
 
@@ -96,8 +90,12 @@ void OCPPExtensionExample::event_keys_to_monitor() {
         monitored_keys.insert(std::move(key));
     }
 
-    // We register monitors for custom configuration keys here
-    r_ocpp->call_monitor_variables(component_variables);
+    if (!component_variables.empty()) {
+        // We register monitors for custom configuration keys here
+        r_ocpp->call_monitor_variables(component_variables);
+    }
+
+    EVLOG_info << "monitoring keys: '" << config.keys_to_monitor << '\'';
 }
 
 void OCPPExtensionExample::event_key_updated(const types::ocpp::EventData& event_data) {
@@ -115,14 +113,9 @@ ConfigChangeResult OCPPExtensionExample::on_enable_changed(const bool& value) {
     return ConfigChangeResult::Accepted();
 }
 
-ConfigChangeResult OCPPExtensionExample::on_poll_interval_changed(const double& value) {
-    rw_config.poll_interval = value;
-    return ConfigChangeResult::Accepted();
-}
-
 ConfigChangeResult OCPPExtensionExample::on_id_changed(const int& value) {
     rw_config.id = value;
-    return ConfigChangeResult::Accepted();
+    return ConfigChangeResult::AcceptedRebootRequired();
 }
 
 ConfigChangeResult OCPPExtensionExample::on_keys_to_monitor_changed(const std::string& value) {

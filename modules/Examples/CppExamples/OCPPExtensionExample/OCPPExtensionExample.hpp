@@ -92,7 +92,6 @@ public:
     // ev@1fce4c5e-0ab8-41bb-90f7-14277703d2ac:v1
     // insert your public definitions here
     ConfigChangeResult on_enable_changed(const bool& value) override;
-    ConfigChangeResult on_poll_interval_changed(const double& value) override;
     ConfigChangeResult on_id_changed(const int& value) override;
     ConfigChangeResult on_keys_to_monitor_changed(const std::string& value) override;
     // ev@1fce4c5e-0ab8-41bb-90f7-14277703d2ac:v1
