@@ -13,12 +13,16 @@ endif()
 # Used for Yocto where the pybind11 libraries may have come from a cache and the
 # full path is no longer the same
 if (PYBIND11_INTERFACE_INCLUDE_DIRECTORIES)
-    set_target_properties(pybind11::pybind11 PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES ${PYBIND11_INTERFACE_INCLUDE_DIRECTORIES}
-    )
-    set_target_properties(pybind11_json PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES ${PYBIND11_INTERFACE_INCLUDE_DIRECTORIES}
-    )
+    if (TARGET pybind11::pybind11)
+        set_property(TARGET pybind11::pybind11 PROPERTY
+            INTERFACE_INCLUDE_DIRECTORIES "${PYBIND11_INTERFACE_INCLUDE_DIRECTORIES}"
+        )
+    endif()
+    if (TARGET pybind11_json)
+        set_property(TARGET pybind11_json PROPERTY
+            INTERFACE_INCLUDE_DIRECTORIES "${PYBIND11_INTERFACE_INCLUDE_DIRECTORIES}"
+        )
+    endif()
 endif()
 
 pybind11_add_module(everestpy misc.cpp module.cpp everestpy.cpp)
