@@ -119,6 +119,11 @@ bool X509Wrapper::is_valid_in_future() const {
     return (get_valid_in() > 0) && (get_valid_to() > 0);
 }
 
+bool X509Wrapper::is_valid_with_skew_tolerance(std::int64_t tolerance_seconds) const {
+    // Accept if notBefore is at most tolerance_seconds in the future, and notAfter has not passed.
+    return (get_valid_in() <= tolerance_seconds) && (get_valid_to() >= 0);
+}
+
 bool X509Wrapper::is_expired() const {
     return (get_valid_to() < 0);
 }

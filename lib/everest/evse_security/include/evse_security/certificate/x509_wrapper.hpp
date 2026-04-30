@@ -112,6 +112,13 @@ public:
     /// and (current data > valid_to)
     bool is_valid_in_future() const;
 
+    /// @brief If the certificate is currently valid, or will become valid within the given
+    /// tolerance window. Equivalent to is_valid() when tolerance_seconds is 0.
+    /// Intended to handle minor clock skew between an issuing CA and the local clock,
+    /// e.g. a freshly-installed leaf whose notBefore is a few seconds in the future.
+    /// @param tolerance_seconds Maximum number of seconds notBefore may be in the future
+    bool is_valid_with_skew_tolerance(std::int64_t tolerance_seconds) const;
+
     /// @brief If the certificate has expired
     bool is_expired() const;
 

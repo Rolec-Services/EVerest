@@ -1699,13 +1699,18 @@ EvseSecurity::get_full_leaf_certificate_info_internal(const CertificateQueryPara
         bool any_valid_certificate = false;
         bool any_valid_key = false;
 
+        // Tolerance for CA/charger clock skew: accept certs whose notBefore is up to
+        // this many seconds in the future. Handles the common case where a CA issues a
+        // fresh leaf with a notBefore timestamp slightly ahead of the charger's wall clock.
+        static constexpr std::int64_t CLOCK_SKEW_TOLERANCE_SECONDS = 3600;
+
         // Iterate all certificates from newest to the oldest
         leaf_certificates.for_each_chain_ordered(
             [&](const fs::path& /*file*/, const std::vector<X509Wrapper>& chain) {
                 bool is_valid = false;
 
                 if (not chain.empty()) {
-                    is_valid |= chain.at(0).is_valid();
+                    is_valid |= chain.at(0).is_valid_with_skew_tolerance(CLOCK_SKEW_TOLERANCE_SECONDS);
 
                     if (params.include_future_valid) {
                         is_valid |= chain.at(0).is_valid_in_future();

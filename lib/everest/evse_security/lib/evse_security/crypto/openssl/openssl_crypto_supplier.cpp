@@ -606,6 +606,13 @@ bool OpenSSLSupplier::x509_is_child(X509Handle* child, X509Handle* parent) {
     const X509_STORE_CTX_ptr ctx(X509_STORE_CTX_new());
     X509_STORE_CTX_init(ctx.get(), store.get(), x509_child, nullptr);
 
+    // Do not enforce notBefore/notAfter when checking parentage. This function answers the
+    // purely cryptographic question "was this cert issued by that cert?" — validity dates are
+    // irrelevant here and would cause freshly-issued certs (whose notBefore may be a few
+    // seconds in the future due to CA/charger clock skew) to be incorrectly orphaned in the
+    // hierarchy, breaking find_certificate_root() and the TLS server reconfiguration.
+    X509_STORE_CTX_set_flags(ctx.get(), X509_V_FLAG_NO_CHECK_TIME);
+
     // If the parent is not a self-signed certificate, assume we have a partial chain
     if (x509_is_selfsigned(parent) == false) {
         // TODO(ioan): see if this strict flag is required, caused many problems
