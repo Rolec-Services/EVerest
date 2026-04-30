@@ -71,7 +71,5 @@ if (TIMER_INSTALL)
         NAME everest-timer
         EXPORT timer-targets
         NAMESPACE everest
-        ADDITIONAL_CONTENT
-            "find_dependency(Boost COMPONENTS system)"
     )
 endif()
