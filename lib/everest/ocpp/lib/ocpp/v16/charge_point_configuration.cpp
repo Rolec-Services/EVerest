@@ -1934,11 +1934,7 @@ std::optional<KeyValue> ChargePointConfiguration::getCertificateSignedMaxChainSi
 
 // Security profile - optional
 std::optional<std::int32_t> ChargePointConfiguration::getCertificateStoreMaxLength() {
-    std::optional<std::int32_t> certificate_store_max_length = std::nullopt;
-    if (this->config["Security"].contains("CertificateStoreMaxLength")) {
-        certificate_store_max_length.emplace(this->config["Security"]["CertificateStoreMaxLength"]);
-    }
-    return certificate_store_max_length;
+    return this->certificate_store_max_length;
 }
 
 std::optional<KeyValue> ChargePointConfiguration::getCertificateStoreMaxLengthKeyValue() {
@@ -1952,6 +1948,10 @@ std::optional<KeyValue> ChargePointConfiguration::getCertificateStoreMaxLengthKe
         certificate_store_max_length_kv.emplace(kv);
     }
     return certificate_store_max_length_kv;
+}
+
+void ChargePointConfiguration::setCertificateStoreMaxLength(std::int32_t max_length) {
+    this->certificate_store_max_length = max_length;
 }
 
 // Security Profile - optional

@@ -63,7 +63,7 @@ struct CertificateQueryParams {
 // Unchangeable security limit for certificate deletion, a min entry count will be always kept (newest)
 static constexpr std::size_t DEFAULT_MINIMUM_CERTIFICATE_ENTRIES = 10;
 // Default maximum certificate entries (sensible for embedded EVSE with HSM-backed keys)
-static constexpr std::uintmax_t DEFAULT_MAX_CERTIFICATE_ENTRIES = 40;
+static constexpr std::uintmax_t DEFAULT_MAX_CERTIFICATE_ENTRIES = 100;
 // Default maximum HSM private key entries before garbage collection is triggered
 static constexpr std::uintmax_t DEFAULT_MAX_HSM_KEY_ENTRIES = 10;
 
@@ -276,6 +276,12 @@ public:
     /// @return day count until the leaf certificate expires
     int get_leaf_expiry_days_count(LeafCertificateType certificate_type);
 
+    /// @brief Returns the configured maximum number of certificate/key file entries across all
+    /// certificate stores. When this limit is reached, install operations will return
+    /// CertificateStoreMaxLengthExceeded.
+    /// @return the configured maximum entry count
+    std::uintmax_t get_max_certificate_store_entries() const;
+
     /// @brief Collects and deletes unfulfilled CSR private keys. It also deletes the expired
     /// certificates. The caller must be sure the system clock is properly set for detecting expired
     /// certificates. A minimum of 'DEFAULT_MINIMUM_CERTIFICATE_ENTRIES' certificates to
@@ -330,7 +336,15 @@ private:
     generate_certificate_signing_request_internal(LeafCertificateType certificate_type,
                                                   const CertificateSigningRequestInfo& info);
 
-    /// @brief Determines if the total filesize of certificates is > than the max_filesystem_usage bytes
+    /// @brief Counts the total number of individual X.509 CA root certificates currently
+    /// installed across all CA bundle paths (V2G, MO, CSMS, MF). Each bundle path may be
+    /// a single PEM file containing multiple concatenated certificates, or a directory of
+    /// individual PEM files. Missing or empty bundles contribute 0 to the count.
+    /// Must be called with security_mutex already held.
+    int count_ca_certificates_internal() const;
+
+    /// @brief Returns true when the HSM key store is over its configured limit (HSM builds
+    /// only), triggering garbage collection. Returns false on non-HSM builds.
     bool is_filesystem_full();
 
     static std::mutex security_mutex;
@@ -345,7 +359,7 @@ private:
 
     // Maximum filesystem usage
     std::uintmax_t max_fs_usage_bytes;
-    // Maximum filesystem certificate entries
+    // Maximum number of root CA certificates across all CA bundles
     std::uintmax_t max_fs_certificate_store_entries;
     // Maximum HSM private key entries before GC is triggered
     std::uintmax_t max_hsm_key_entries;

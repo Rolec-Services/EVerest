@@ -2100,7 +2100,7 @@ std::optional<std::int32_t> ChargePointConfigurationDeviceModel::getCertificateS
 }
 
 std::optional<std::int32_t> ChargePointConfigurationDeviceModel::getCertificateStoreMaxLength() {
-    return get_optional<std::int32_t>(*storage, keys::valid_keys::CertificateStoreMaxLength);
+    return this->certificate_store_max_length;
 }
 
 KeyValue ChargePointConfigurationDeviceModel::getDisableSecurityEventNotificationsKeyValue() {
@@ -2133,7 +2133,20 @@ std::optional<KeyValue> ChargePointConfigurationDeviceModel::getCertificateSigne
 }
 
 std::optional<KeyValue> ChargePointConfigurationDeviceModel::getCertificateStoreMaxLengthKeyValue() {
-    return get_key_value_optional(*storage, keys::valid_keys::CertificateStoreMaxLength);
+    std::optional<KeyValue> certificate_store_max_length_kv = std::nullopt;
+    auto certificate_store_max_length = this->getCertificateStoreMaxLength();
+    if (certificate_store_max_length != std::nullopt) {
+        v16::KeyValue kv;
+        kv.key = "CertificateStoreMaxLength";
+        kv.readonly = true;
+        kv.value.emplace(std::to_string(certificate_store_max_length.value()));
+        certificate_store_max_length_kv.emplace(kv);
+    }
+    return certificate_store_max_length_kv;
+}
+
+void ChargePointConfigurationDeviceModel::setCertificateStoreMaxLength(std::int32_t max_length) {
+    this->certificate_store_max_length = max_length;
 }
 
 std::optional<KeyValue> ChargePointConfigurationDeviceModel::getCpoNameKeyValue() {

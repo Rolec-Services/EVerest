@@ -130,6 +130,12 @@ public:
     /// \param certificate_type
     /// \return day count until the leaf certificate expires
     virtual int get_leaf_expiry_days_count(const CertificateSigningUseEnum& certificate_type) = 0;
+
+    /// \brief Returns the configured maximum number of certificate and key file entries across all
+    /// certificate stores. This is the single source of truth for the limit and should be used by
+    /// OCPP modules to populate CertificateStoreMaxLength rather than maintaining a separate value.
+    /// \return the configured maximum entry count
+    virtual int get_max_certificate_entries() = 0;
 };
 
 namespace evse_security_conversions {

@@ -1097,6 +1097,13 @@ void OCPP::ready() {
     std::this_thread::sleep_for(std::chrono::milliseconds(this->config.DelayOcppStart));
     const auto boot_reason = conversions::to_ocpp_boot_reason_enum(this->r_system->call_get_boot_reason());
 
+    // Populate CertificateStoreMaxLength from the EvseSecurity module so that the value reported
+    // to the CSMS via GetConfiguration reflects the limit actually enforced by EvseSecurity.
+    // This is done here in ready() rather than at construction time because IPC calls to other
+    // modules are only safe once all modules have completed init().
+    this->charge_point_config->setCertificateStoreMaxLength(
+        static_cast<std::int32_t>(this->r_security->call_get_max_certificate_entries()));
+
     // we can now start the OCPP connection and process any queued events. We lock
     // the event mutex to avoid race conditions with error/event handlers that
     // might be called from other threads

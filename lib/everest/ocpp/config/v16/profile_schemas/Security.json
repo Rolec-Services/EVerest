@@ -23,12 +23,6 @@
             "maximum": 10000,
             "readOnly": true
         },
-        "CertificateStoreMaxLength": {
-            "type": "integer",
-            "description": "Maximum number of Root/CA certificates that can be installed in the Charge Point.",
-            "minimum": 0,
-            "readOnly": true
-        },
         "CpoName": {
             "type": "string",
             "description": "This configuration key contains CPO name (or an organization trusted by the CPO) as used in the Charge Point Certificate.",

@@ -331,6 +331,7 @@ public:
     virtual void setCpoName(const std::string& cpo_name) = 0;
     virtual void setDisableSecurityEventNotifications(bool disable_security_event_notifications) = 0;
     virtual void setSecurityProfile(std::int32_t security_profile) = 0;
+    virtual void setCertificateStoreMaxLength(std::int32_t max_length) = 0;
 
     // Local Auth List Management Profile
     virtual bool getLocalAuthListEnabled() = 0;

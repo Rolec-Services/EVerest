@@ -45,6 +45,7 @@ public:
     std::string get_verify_file(const ocpp::CaCertificateType& certificate_type) override;
     std::string get_verify_location(const ocpp::CaCertificateType& certificate_type) override;
     int get_leaf_expiry_days_count(const ocpp::CertificateSigningUseEnum& certificate_type) override;
+    int get_max_certificate_entries() override;
 };
 
 namespace conversions {

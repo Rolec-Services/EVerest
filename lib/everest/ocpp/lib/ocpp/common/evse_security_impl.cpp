@@ -160,6 +160,10 @@ int EvseSecurityImpl::get_leaf_expiry_days_count(const CertificateSigningUseEnum
     return this->evse_security->get_leaf_expiry_days_count(conversions::from_ocpp(certificate_type));
 }
 
+int EvseSecurityImpl::get_max_certificate_entries() {
+    return static_cast<int>(this->evse_security->get_max_certificate_store_entries());
+}
+
 namespace conversions {
 
 GetCertificateSignRequestStatus to_ocpp(evse_security::GetCertificateSignRequestStatus other) {

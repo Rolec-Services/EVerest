@@ -225,6 +225,10 @@ int EvseSecurity::get_leaf_expiry_days_count(const ocpp::CertificateSigningUseEn
     }
 }
 
+int EvseSecurity::get_max_certificate_entries() {
+    return this->r_security.call_get_max_certificate_entries();
+}
+
 namespace conversions {
 
 ocpp::CaCertificateType to_ocpp(types::evse_security::CaCertificateType other) {

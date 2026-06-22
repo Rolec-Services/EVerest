@@ -342,5 +342,9 @@ bool evse_securityImpl::handle_verify_file_signature(std::string& file_path, std
     }
 }
 
+int evse_securityImpl::handle_get_max_certificate_entries() {
+    return static_cast<int>(this->evse_security->get_max_certificate_store_entries());
+}
+
 } // namespace main
 } // namespace module

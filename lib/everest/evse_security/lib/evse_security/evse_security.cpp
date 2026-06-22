@@ -382,8 +382,10 @@ InstallCertificateResult EvseSecurity::install_ca_certificate(const std::string&
 
     EVLOG_info << "Installing ca certificate: " << conversions::ca_certificate_type_to_string(certificate_type);
 
-    if (is_filesystem_full()) {
-        EVLOG_error << "Filesystem full, can't install new CA certificate!";
+    const int current_ca_count = count_ca_certificates_internal();
+    if (current_ca_count >= static_cast<int>(max_fs_certificate_store_entries)) {
+        EVLOG_error << "CA certificate store full (" << current_ca_count << " of "
+                    << max_fs_certificate_store_entries << " installed), can't install new CA certificate!";
         return InstallCertificateResult::CertificateStoreMaxLengthExceeded;
     }
 
@@ -664,11 +666,6 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
 InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string& certificate_chain,
                                                                LeafCertificateType certificate_type) {
     const std::lock_guard<std::mutex> guard(EvseSecurity::security_mutex);
-
-    if (is_filesystem_full()) {
-        EVLOG_error << "Filesystem full, can't install new CA certificate!";
-        return InstallCertificateResult::CertificateStoreMaxLengthExceeded;
-    }
 
     EVLOG_info << "Updating leaf certificate: " << conversions::leaf_certificate_type_to_string(certificate_type);
 
@@ -1479,6 +1476,21 @@ GetCertificateSignRequestResult EvseSecurity::generate_certificate_signing_reque
         return result;
     }
 
+#ifdef USING_CUSTOM_PROVIDER
+    // For HSM key generation, enforce the configured key limit before creating a new key.
+    // This must be checked before the orphan scan so we never create a key that puts us over limit.
+    if (use_custom_provider) {
+        const auto hsm_key_count = PKCS11Helper::count_keys_on_token();
+        if (hsm_key_count.has_value() && hsm_key_count.value() >= max_hsm_key_entries) {
+            EVLOG_error << "HSM key store full (" << hsm_key_count.value() << " of " << max_hsm_key_entries
+                        << " keys in use), cannot generate new leaf key";
+            GetCertificateSignRequestResult result{};
+            result.status = GetCertificateSignRequestStatus::KeyGenError;
+            return result;
+        }
+    }
+#endif
+
     CertificateSigningRequestInfo info;
 
     info.n_version = 0;
@@ -2143,6 +2155,10 @@ int EvseSecurity::get_leaf_expiry_days_count(LeafCertificateType certificate_typ
     return 0;
 }
 
+std::uintmax_t EvseSecurity::get_max_certificate_store_entries() const {
+    return this->max_fs_certificate_store_entries;
+}
+
 bool EvseSecurity::verify_file_signature(const fs::path& path, const std::string& signing_certificate,
                                          const std::string signature) {
     const std::lock_guard<std::mutex> guard(EvseSecurity::security_mutex);
@@ -2621,53 +2637,23 @@ void EvseSecurity::garbage_collect() {
     }
 }
 
+int EvseSecurity::count_ca_certificates_internal() const {
+    int count = 0;
+    for (const auto& [certificate_type, ca_bundle_path] : this->ca_bundle_path_map) {
+        try {
+            const X509CertificateBundle bundle(ca_bundle_path, EncodingFormat::PEM);
+            count += bundle.get_certificate_count();
+        } catch (const CertificateLoadException& e) {
+            // Bundle path doesn't exist or isn't a certificate file/directory — count 0 for this type.
+            EVLOG_debug << "Could not load CA bundle for certificate count at " << ca_bundle_path << ": " << e.what();
+        }
+    }
+    return count;
+}
+
 bool EvseSecurity::is_filesystem_full() {
-    std::set<fs::path> unique_paths;
-
-    // Collect all bundles
-    for (const auto& [certificate_type, ca_bundle_path] : ca_bundle_path_map) {
-        if (fs::is_regular_file(ca_bundle_path)) {
-            unique_paths.emplace(ca_bundle_path);
-        } else if (fs::is_directory(ca_bundle_path)) {
-            for (const auto& entry : fs::recursive_directory_iterator(ca_bundle_path)) {
-                if (fs::is_regular_file(entry)) {
-                    unique_paths.emplace(entry);
-                }
-            }
-        }
-    }
-
-    // Collect all key/leafs
-    std::vector<fs::path> key_pairs;
-
-    key_pairs.push_back(directories.csms_leaf_cert_directory);
-    key_pairs.push_back(directories.csms_leaf_key_directory);
-    key_pairs.push_back(directories.secc_leaf_cert_directory);
-    key_pairs.push_back(directories.secc_leaf_key_directory);
-
-    for (const auto& directory : key_pairs) {
-        if (fs::is_regular_file(directory)) {
-            unique_paths.emplace(directory);
-        } else if (fs::is_directory(directory)) {
-            for (const auto& entry : fs::recursive_directory_iterator(directory)) {
-                if (fs::is_regular_file(entry)) {
-                    unique_paths.emplace(entry);
-                }
-            }
-        }
-    }
-
-    const uintmax_t total_entries = unique_paths.size();
-    EVLOG_debug << "Total entries used: " << total_entries;
-
-    if (total_entries > max_fs_certificate_store_entries) {
-        EVLOG_warning << "Exceeded maximum entries: " << max_fs_certificate_store_entries << " with :" << total_entries
-                      << " total entries";
-        return true;
-    }
-
 #ifdef USING_CUSTOM_PROVIDER
-    // Also trigger GC if the HSM token is holding more private keys than the configured threshold.
+    // Trigger GC if the HSM token is holding more private keys than the configured threshold.
     // If the HSM is unreachable (nullopt), we fail safe and do not trigger GC.
     const auto hsm_key_count = PKCS11Helper::count_keys_on_token();
     if (hsm_key_count.has_value()) {

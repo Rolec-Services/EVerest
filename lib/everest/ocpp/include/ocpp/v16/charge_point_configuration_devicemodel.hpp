@@ -27,6 +27,9 @@ public:
 protected:
     std::unique_ptr<v2::DeviceModelInterface> storage;
 
+    // In-memory value populated at startup from the EvseSecurity module — the single source of truth.
+    std::optional<std::int32_t> certificate_store_max_length;
+
     SetResult setInternalAllowChargingProfileWithoutStartSchedule(const std::string& value);
     SetResult setInternalCentralSystemURI(const std::string& value);
     SetResult setInternalCompositeScheduleDefaultLimitAmps(const std::string& value);
@@ -409,6 +412,7 @@ public:
     void setCpoName(const std::string& cpo_name) override;
     void setDisableSecurityEventNotifications(bool disable_security_event_notifications) override;
     void setSecurityProfile(std::int32_t security_profile) override;
+    void setCertificateStoreMaxLength(std::int32_t max_length) override;
 
     // Local Auth List Management Profile
     bool getLocalAuthListEnabled() override;

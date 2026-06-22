@@ -55,11 +55,11 @@ config:
     type: string
     default: "0000"
   max_certificate_entries:
-    description: Maximum number of certificate and key files across all stores before garbage collection is triggered. Set to 0 to use the library default.
+    description: Maximum number of root CA certificates that can be installed across all CA bundles (V2G, MO, CSMS, MF). This value is reported to the CSMS via the OCPP CertificateStoreMaxLength configuration key. Set to 0 to use the library default (100).
     type: integer
     default: 0
   max_hsm_key_entries:
-    description: Maximum number of private key objects on the HSM token before garbage collection is triggered. Set to 0 to use the library default (10).
+    description: Maximum number of private key objects permitted on the HSM token. If the key count reaches this limit, new leaf certificate signing requests will be refused until keys are freed by garbage collection. Set to 0 to use the library default (10).
     type: integer
     default: 0
 provides:

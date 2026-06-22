@@ -226,6 +226,15 @@ cmds:
     result:
       description: True if verification succeeded, false if not
       type: boolean
+  get_max_certificate_entries:
+    description: >-
+      Returns the configured maximum number of certificate and key file entries across all
+      certificate stores. When this limit is reached, install operations will return
+      CertificateStoreMaxLengthExceeded. This is the single source of truth for the limit
+      and should be used by OCPP modules to populate CertificateStoreMaxLength.
+    result:
+      description: The configured maximum entry count
+      type: integer
 vars:
   certificate_store_update:
     description: >-

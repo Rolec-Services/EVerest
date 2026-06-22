@@ -26,6 +26,9 @@ private:
     bool core_schema_unlock_connector_on_ev_side_disconnect_ro_value;
     fs::path user_config_path;
 
+    // In-memory value populated at startup from the EvseSecurity module — the single source of truth.
+    std::optional<std::int32_t> certificate_store_max_length;
+
     std::recursive_mutex configuration_mutex;
 
     bool validate_measurands(const json& config);
@@ -391,6 +394,7 @@ public:
     // Security profile - optional
     std::optional<std::int32_t> getCertificateStoreMaxLength() override;
     std::optional<KeyValue> getCertificateStoreMaxLengthKeyValue() override;
+    void setCertificateStoreMaxLength(std::int32_t max_length) override;
 
     // Security profile - optional
     std::optional<std::string> getCpoName() override;
