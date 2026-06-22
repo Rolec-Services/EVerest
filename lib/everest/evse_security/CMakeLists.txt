@@ -14,7 +14,7 @@ option(${PROJECT_NAME}_BUILD_TESTING "Build unit tests, used if included as depe
 option(BUILD_TESTING "Build unit tests, used if standalone project" OFF)
 option(EVSE_SECURITY_INSTALL "Install the library (shared data might be installed anyway)" ${EVC_MAIN_PROJECT})
 option(USING_TPM2 "Include code for using OpenSSL 3 and the tpm2 provider" OFF)
-option(USING_CUSTOM_PROVIDER "Include code for using OpenSSL 3 and the custom provider" OFF)
+option(USING_CUSTOM_PROVIDER "Include code for using OpenSSL 3 and the custom provider" ON)
 
 if((${CMAKE_PROJECT_NAME} STREQUAL ${PROJECT_NAME} OR ${PROJECT_NAME}_BUILD_TESTING) AND BUILD_TESTING)
     set(LIBEVSE_SECURITY_BUILD_TESTING ON)
