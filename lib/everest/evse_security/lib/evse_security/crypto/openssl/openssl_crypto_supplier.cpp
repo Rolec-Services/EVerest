@@ -20,8 +20,8 @@
 #include <openssl/opensslv.h>
 #include <openssl/param_build.h>
 #include <openssl/pem.h>
-#include <openssl/sha.h>
 #include <openssl/provider.h>
+#include <openssl/sha.h>
 #include <openssl/store.h>
 #include <openssl/x509v3.h>
 
@@ -53,8 +53,8 @@ EVP_PKEY* get(KeyHandle* handle) {
 }
 
 CertificateValidationResult to_certificate_error(const int ec) {
-    EVLOG_warning << "Certificate verification failed with OpenSSL error code " << ec
-                  << " (" << X509_verify_cert_error_string(ec) << ")";
+    EVLOG_warning << "Certificate verification failed with OpenSSL error code " << ec << " ("
+                  << X509_verify_cert_error_string(ec) << ")";
 
     switch (ec) {
     case X509_V_ERR_CERT_HAS_EXPIRED:
@@ -219,9 +219,8 @@ bool s_generate_key(const KeyGenerationInfo& key_info, KeyHandle_ptr& out_key, E
         // We use the SAME context that generated the key, so the provider's session sees it.
         const std::string& pkcs11_uri = uri_opt.value();
 
-        OSSL_STORE_CTX* store_ctx =
-            OSSL_STORE_open_ex(pkcs11_uri.c_str(), s_pkcs11_libctx, nullptr, nullptr, nullptr, nullptr,
-                               nullptr, nullptr);
+        OSSL_STORE_CTX* store_ctx = OSSL_STORE_open_ex(pkcs11_uri.c_str(), s_pkcs11_libctx, nullptr, nullptr, nullptr,
+                                                       nullptr, nullptr, nullptr);
         if (store_ctx == nullptr) {
             EVLOG_error << "Failed to open OSSL_STORE for PKCS#11 URI: " << pkcs11_uri;
             ERR_print_errors_fp(stderr);
@@ -749,7 +748,8 @@ CertificateValidationResult OpenSSLSupplier::x509_verify_certificate_chain(
                     // Check the encoding size — explicit params produce much larger encodings
                     int der_len = i2d_PUBKEY(pubkey, nullptr);
                     EVLOG_info << "  Public key DER encoding size: " << der_len << " bytes"
-                               << (der_len > 100 ? " (LARGE - likely explicit EC parameters)" : " (normal - named curve)");
+                               << (der_len > 100 ? " (LARGE - likely explicit EC parameters)"
+                                                 : " (normal - named curve)");
                 }
             }
         }
@@ -905,7 +905,7 @@ CertificateSignRequestResult OpenSSLSupplier::x509_generate_csr(const Certificat
             char group_name[64] = {};
             size_t group_name_len = 0;
             bool have_group = EVP_PKEY_get_utf8_string_param(key, OSSL_PKEY_PARAM_GROUP_NAME, group_name,
-                                                              sizeof(group_name), &group_name_len);
+                                                             sizeof(group_name), &group_name_len);
             if (!have_group) {
                 EVLOG_warning << "Could not retrieve EC curve name — CSR will use explicit parameters";
                 ERR_clear_error();
@@ -937,9 +937,8 @@ CertificateSignRequestResult OpenSSLSupplier::x509_generate_csr(const Certificat
                         EVP_PKEY_get_octet_string_param(sw_pubkey, OSSL_PKEY_PARAM_PUB_KEY, nullptr, 0, &point_len);
                         std::vector<unsigned char> point(point_len);
 
-                        if (point_len > 0 &&
-                            EVP_PKEY_get_octet_string_param(sw_pubkey, OSSL_PKEY_PARAM_PUB_KEY, point.data(),
-                                                             point.size(), &point_len)) {
+                        if (point_len > 0 && EVP_PKEY_get_octet_string_param(sw_pubkey, OSSL_PKEY_PARAM_PUB_KEY,
+                                                                             point.data(), point.size(), &point_len)) {
                             // Step 4: Reconstruct a public-key-only EVP_PKEY with named curve encoding
                             OSSL_PARAM_BLD* bld = OSSL_PARAM_BLD_new();
                             OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, group_name, 0);

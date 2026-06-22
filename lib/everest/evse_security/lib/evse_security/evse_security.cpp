@@ -366,10 +366,8 @@ EvseSecurity::EvseSecurity(const FilePaths& file_paths, const std::optional<std:
     // write_pkcs11_uri_pem_file() writing the .tkey file — a scenario that is otherwise
     // invisible to all filesystem-driven GC logic.
 #ifdef USING_CUSTOM_PROVIDER
-    PKCS11Helper::delete_hsm_orphaned_keys({
-        this->directories.csms_leaf_key_directory,
-        this->directories.secc_leaf_key_directory
-    });
+    PKCS11Helper::delete_hsm_orphaned_keys(
+        {this->directories.csms_leaf_key_directory, this->directories.secc_leaf_key_directory});
 #endif
 
     // Start GC timer
@@ -600,8 +598,7 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
                                 fs::path candidate = deleted_leaf.get_file().value();
                                 candidate.replace_extension(ext);
                                 if (fs::exists(candidate)) {
-                                    EVLOG_info << "Deleted key of leaf certificate: "
-                                               << deleted_leaf.get_common_name();
+                                    EVLOG_info << "Deleted key of leaf certificate: " << deleted_leaf.get_common_name();
                                     delete_hsm_key_for_path(candidate);
                                     filesystem_utils::delete_file(candidate);
                                     found_key = true;
@@ -614,8 +611,7 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
                             // (keys may be stored in a separate directory from certs)
                             if (deleted_leaf.get_file().has_value()) {
                                 for (const auto& ext : {KEY_EXTENSION, CUSTOM_KEY_EXTENSION}) {
-                                    fs::path candidate = leaf_certificate_key /
-                                                         deleted_leaf.get_file().value().stem();
+                                    fs::path candidate = leaf_certificate_key / deleted_leaf.get_file().value().stem();
                                     candidate.replace_extension(ext);
                                     if (fs::exists(candidate)) {
                                         EVLOG_info << "Deleted key of leaf certificate: "
@@ -649,7 +645,7 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
 
             return true;
         }); // End for each chain
-    }       // End for each leaf directory
+    } // End for each leaf directory
 
     if (!found_certificate) {
         response.result = DeleteCertificateResult::NotFound;
@@ -758,13 +754,13 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
             // get_private_key_path_of_certificate fast path, old-cert cleanup below)
             // can correctly associate keys with their certificates.
             {
-                const fs::path new_key_path = key_path / (file_path.stem().string() +
-                                                          private_key_path.extension().string());
+                const fs::path new_key_path =
+                    key_path / (file_path.stem().string() + private_key_path.extension().string());
                 if (new_key_path != private_key_path) {
                     try {
                         fs::rename(private_key_path, new_key_path);
-                        EVLOG_info << "Renamed key to match cert: " << private_key_path.filename()
-                                   << " -> " << new_key_path.filename();
+                        EVLOG_info << "Renamed key to match cert: " << private_key_path.filename() << " -> "
+                                   << new_key_path.filename();
                     } catch (const fs::filesystem_error& e) {
                         EVLOG_warning << "Could not rename key to match cert: " << e.what();
                     }
@@ -775,9 +771,8 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
             // Per ISO 15118 / auditor requirements: shall not store more than one
             // leaf cert + key from the same V2G root at the same time.
             try {
-                CaCertificateType root_type = (certificate_type == LeafCertificateType::CSMS)
-                                                  ? CaCertificateType::CSMS
-                                                  : CaCertificateType::V2G;
+                CaCertificateType root_type =
+                    (certificate_type == LeafCertificateType::CSMS) ? CaCertificateType::CSMS : CaCertificateType::V2G;
                 const fs::path root_dir = ca_bundle_path_map[root_type];
                 X509CertificateBundle root_bundle(root_dir, EncodingFormat::PEM);
                 X509CertificateBundle all_leafs(cert_path, EncodingFormat::PEM);
@@ -789,58 +784,55 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
 
                 if (new_leaf_root.has_value()) {
                     // Scan for other leaf certs from the same root and delete them
-                    all_leafs.for_each_chain(
-                        [&](const fs::path& existing_file, const std::vector<X509Wrapper>& chain) {
-                            if (chain.empty()) {
-                                return true;
-                            }
+                    all_leafs.for_each_chain([&](const fs::path& existing_file, const std::vector<X509Wrapper>& chain) {
+                        if (chain.empty()) {
+                            return true;
+                        }
 
-                            const auto& existing_leaf = chain[0];
+                        const auto& existing_leaf = chain[0];
 
-                            // Skip the certificate we just installed
-                            if (existing_leaf == leaf_certificate) {
-                                return true;
-                            }
+                        // Skip the certificate we just installed
+                        if (existing_leaf == leaf_certificate) {
+                            return true;
+                        }
 
-                            // Check if this cert chains to the same root CA by certificate
-                            // identity (DER comparison), not by Common Name — distinct root
-                            // CAs may share a CN (e.g. during root CA rotation).
-                            auto existing_root = hierarchy.find_certificate_root(existing_leaf);
-                            if (existing_root.has_value() &&
-                                existing_root.value() == new_leaf_root.value()) {
+                        // Check if this cert chains to the same root CA by certificate
+                        // identity (DER comparison), not by Common Name — distinct root
+                        // CAs may share a CN (e.g. during root CA rotation).
+                        auto existing_root = hierarchy.find_certificate_root(existing_leaf);
+                        if (existing_root.has_value() && existing_root.value() == new_leaf_root.value()) {
 
-                                EVLOG_info << "Deleting old leaf cert from same root: "
-                                           << existing_file;
+                            EVLOG_info << "Deleting old leaf cert from same root: " << existing_file;
 
-                                // Try to find and delete the old cert's private key.
-                                // Check for both .key and .tkey files by name before calling
-                                // get_private_key_path_of_certificate() — if neither exists,
-                                // the key was already cleaned up (e.g., by pre-generation
-                                // orphan cleanup) and we can skip silently.
-                                bool found_old_key = false;
-                                if (existing_leaf.get_file().has_value()) {
-                                    for (const auto& ext : {KEY_EXTENSION, CUSTOM_KEY_EXTENSION}) {
-                                        fs::path candidate = existing_leaf.get_file().value();
-                                        candidate.replace_extension(ext);
-                                        if (fs::exists(candidate)) {
-                                            EVLOG_info << "Deleting old private key: " << candidate;
-                                            delete_hsm_key_for_path(candidate);
-                                            filesystem_utils::delete_file(candidate);
-                                            found_old_key = true;
-                                            break;
-                                        }
+                            // Try to find and delete the old cert's private key.
+                            // Check for both .key and .tkey files by name before calling
+                            // get_private_key_path_of_certificate() — if neither exists,
+                            // the key was already cleaned up (e.g., by pre-generation
+                            // orphan cleanup) and we can skip silently.
+                            bool found_old_key = false;
+                            if (existing_leaf.get_file().has_value()) {
+                                for (const auto& ext : {KEY_EXTENSION, CUSTOM_KEY_EXTENSION}) {
+                                    fs::path candidate = existing_leaf.get_file().value();
+                                    candidate.replace_extension(ext);
+                                    if (fs::exists(candidate)) {
+                                        EVLOG_info << "Deleting old private key: " << candidate;
+                                        delete_hsm_key_for_path(candidate);
+                                        filesystem_utils::delete_file(candidate);
+                                        found_old_key = true;
+                                        break;
                                     }
                                 }
-                                if (!found_old_key) {
-                                    EVLOG_info << "No private key file found for old cert (already cleaned up)";
-                                }
-
-                                // Delete the old certificate file
-                                filesystem_utils::delete_file(existing_file);
+                            }
+                            if (!found_old_key) {
+                                EVLOG_info << "No private key file found for old cert (already cleaned up)";
                             }
 
-                            return true; // continue iterating
-                        });
+                            // Delete the old certificate file
+                            filesystem_utils::delete_file(existing_file);
+                        }
+
+                        return true; // continue iterating
+                    });
                 }
             } catch (const std::exception& e) {
                 // Non-fatal: failure to clean up old certs shouldn't block installation
@@ -1257,7 +1249,8 @@ void EvseSecurity::update_ocsp_cache(const CertificateHashData& certificate_hash
         // If we already have the hash, over-write, else create a new one
         try {
             // Find the certificates, can be multiple if we have SUBcas in multiple bundles
-            const std::vector<X509Wrapper> certs = certificate_hierarchy.find_certificates_multi(certificate_hash_data, true);
+            const std::vector<X509Wrapper> certs =
+                certificate_hierarchy.find_certificates_multi(certificate_hash_data, true);
 
             for (auto& cert : certs) {
                 EVLOG_debug << "Writing OCSP Response to filesystem";
@@ -1581,7 +1574,7 @@ GetCertificateSignRequestResult EvseSecurity::generate_certificate_signing_reque
 }
 
 GetCertificateSignRequestResult EvseSecurity::generate_certificate_signing_request(LeafCertificateType certificate_type,
-                                                                                    const std::string& country,
+                                                                                   const std::string& country,
                                                                                    const std::string& organization,
                                                                                    const std::string& common) {
     return generate_certificate_signing_request(certificate_type, country, organization, common, false);

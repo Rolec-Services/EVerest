@@ -33,8 +33,8 @@ const PKCS11Config& PKCS11Helper::get_config() {
 
 #include <everest/logging.hpp>
 
-#include <dlfcn.h>
 #include <cstring>
+#include <dlfcn.h>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -42,7 +42,7 @@ const PKCS11Config& PKCS11Helper::get_config() {
 namespace evse_security {
 
 std::optional<std::string> PKCS11Helper::generate_key_in_hsm(CryptoKeyType key_type, const std::string& key_label,
-                                                              void* caller_libctx) {
+                                                             void* caller_libctx) {
     const auto& config = s_config;
     EVLOG_info << "Generating PKCS#11 key pair in HSM via OpenSSL provider: " << key_label;
 
@@ -85,8 +85,7 @@ std::optional<std::string> PKCS11Helper::generate_key_in_hsm(CryptoKeyType key_t
     std::string pkcs11_uri = "pkcs11:token=" + config.token + ";object=" + key_label + ";type=private";
 
     EVLOG_info << "Requesting " << algorithm << " key generation via pkcs11 provider"
-               << (is_ec ? (", group=" + group) : (", bits=" + std::to_string(bits)))
-               << ", pkcs11_uri=" << pkcs11_uri;
+               << (is_ec ? (", group=" + group) : (", bits=" + std::to_string(bits))) << ", pkcs11_uri=" << pkcs11_uri;
 
     // Use the caller-provided OSSL_LIB_CTX if available, otherwise create an isolated one.
     // When a caller provides a context, both key generation and subsequent key loading use
@@ -132,13 +131,11 @@ std::optional<std::string> PKCS11Helper::generate_key_in_hsm(CryptoKeyType key_t
     //   - "pkcs11_uri": tells the pkcs11 provider which token and object label to use
     std::array<OSSL_PARAM, 3> params;
     if (is_ec) {
-        params[0] = OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME,
-                                                      const_cast<char*>(group.c_str()), 0);
+        params[0] = OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME, const_cast<char*>(group.c_str()), 0);
     } else {
         params[0] = OSSL_PARAM_construct_uint(OSSL_PKEY_PARAM_BITS, &bits);
     }
-    params[1] = OSSL_PARAM_construct_utf8_string("pkcs11_uri",
-                                                  const_cast<char*>(pkcs11_uri.c_str()), 0);
+    params[1] = OSSL_PARAM_construct_utf8_string("pkcs11_uri", const_cast<char*>(pkcs11_uri.c_str()), 0);
     params[2] = OSSL_PARAM_construct_end();
 
     if (EVP_PKEY_CTX_set_params(ctx, params.data()) <= 0) {
@@ -258,7 +255,8 @@ bool PKCS11Helper::delete_key_from_hsm(const std::string& key_label) {
                         &session);
     if (rv != CKR_OK) {
         EVLOG_error << "C_OpenSession failed: 0x" << std::hex << rv;
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return false;
     }
 
@@ -272,7 +270,8 @@ bool PKCS11Helper::delete_key_from_hsm(const std::string& key_label) {
     if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
         EVLOG_error << "C_Login failed: 0x" << std::hex << rv;
         fn_CloseSession(session);
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return false;
     }
 
@@ -288,11 +287,11 @@ bool PKCS11Helper::delete_key_from_hsm(const std::string& key_label) {
         std::string label_copy = key_label;
 
         CK_ATTRIBUTE search_template[2];
-        search_template[0].type       = CKA_CLASS;
-        search_template[0].pValue     = &obj_class;
+        search_template[0].type = CKA_CLASS;
+        search_template[0].pValue = &obj_class;
         search_template[0].ulValueLen = sizeof(obj_class);
-        search_template[1].type       = CKA_LABEL;
-        search_template[1].pValue     = label_copy.data();
+        search_template[1].type = CKA_LABEL;
+        search_template[1].pValue = label_copy.data();
         search_template[1].ulValueLen = static_cast<CK_ULONG>(label_copy.size());
 
         rv = fn_FindObjectsInit(session, search_template, 2);
@@ -318,8 +317,8 @@ bool PKCS11Helper::delete_key_from_hsm(const std::string& key_label) {
             }
             rv = fn_DestroyObject(session, handle);
             if (rv != CKR_OK) {
-                EVLOG_error << "C_DestroyObject failed for " << class_names[i] << " '" << key_label
-                            << "': 0x" << std::hex << rv;
+                EVLOG_error << "C_DestroyObject failed for " << class_names[i] << " '" << key_label << "': 0x"
+                            << std::hex << rv;
                 success = false;
                 break;
             }
@@ -329,11 +328,10 @@ bool PKCS11Helper::delete_key_from_hsm(const std::string& key_label) {
         fn_FindObjectsFinal(session);
 
         if (destroyed_count > 0) {
-            EVLOG_info << "Destroyed " << destroyed_count << " " << class_names[i]
-                       << " object(s) with label '" << key_label << "' from HSM";
+            EVLOG_info << "Destroyed " << destroyed_count << " " << class_names[i] << " object(s) with label '"
+                       << key_label << "' from HSM";
         } else {
-            EVLOG_debug << "No " << class_names[i] << " found with label '" << key_label
-                        << "' (already deleted?)";
+            EVLOG_debug << "No " << class_names[i] << " found with label '" << key_label << "' (already deleted?)";
         }
     }
 
@@ -371,14 +369,14 @@ std::optional<std::size_t> PKCS11Helper::count_keys_on_token() {
     std::unique_ptr<void, decltype(module_cleanup)> module_guard(module, module_cleanup);
 
     // Resolve required PKCS#11 functions
-    auto fn_Initialize       = reinterpret_cast<PFN_C_Initialize>      (dlsym(module, "C_Initialize"));
-    auto fn_Finalize         = reinterpret_cast<PFN_C_Finalize>        (dlsym(module, "C_Finalize"));
-    auto fn_OpenSession      = reinterpret_cast<PFN_C_OpenSession>     (dlsym(module, "C_OpenSession"));
-    auto fn_CloseSession     = reinterpret_cast<PFN_C_CloseSession>    (dlsym(module, "C_CloseSession"));
-    auto fn_Login            = reinterpret_cast<PFN_C_Login>           (dlsym(module, "C_Login"));
-    auto fn_Logout           = reinterpret_cast<PFN_C_Logout>          (dlsym(module, "C_Logout"));
-    auto fn_FindObjectsInit  = reinterpret_cast<PFN_C_FindObjectsInit> (dlsym(module, "C_FindObjectsInit"));
-    auto fn_FindObjects      = reinterpret_cast<PFN_C_FindObjects>     (dlsym(module, "C_FindObjects"));
+    auto fn_Initialize = reinterpret_cast<PFN_C_Initialize>(dlsym(module, "C_Initialize"));
+    auto fn_Finalize = reinterpret_cast<PFN_C_Finalize>(dlsym(module, "C_Finalize"));
+    auto fn_OpenSession = reinterpret_cast<PFN_C_OpenSession>(dlsym(module, "C_OpenSession"));
+    auto fn_CloseSession = reinterpret_cast<PFN_C_CloseSession>(dlsym(module, "C_CloseSession"));
+    auto fn_Login = reinterpret_cast<PFN_C_Login>(dlsym(module, "C_Login"));
+    auto fn_Logout = reinterpret_cast<PFN_C_Logout>(dlsym(module, "C_Logout"));
+    auto fn_FindObjectsInit = reinterpret_cast<PFN_C_FindObjectsInit>(dlsym(module, "C_FindObjectsInit"));
+    auto fn_FindObjects = reinterpret_cast<PFN_C_FindObjects>(dlsym(module, "C_FindObjects"));
     auto fn_FindObjectsFinal = reinterpret_cast<PFN_C_FindObjectsFinal>(dlsym(module, "C_FindObjectsFinal"));
 
     if (!fn_Initialize || !fn_Finalize || !fn_OpenSession || !fn_CloseSession || !fn_Login || !fn_Logout ||
@@ -400,7 +398,8 @@ std::optional<std::size_t> PKCS11Helper::count_keys_on_token() {
                         &session);
     if (rv != CKR_OK) {
         EVLOG_error << "C_OpenSession failed: 0x" << std::hex << rv;
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return std::nullopt;
     }
 
@@ -412,23 +411,26 @@ std::optional<std::size_t> PKCS11Helper::count_keys_on_token() {
     if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
         EVLOG_error << "C_Login failed: 0x" << std::hex << rv;
         fn_CloseSession(session);
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return std::nullopt;
     }
 
     // Search for all CKO_PRIVATE_KEY objects on the token (no label filter)
     CK_OBJECT_CLASS obj_class = CKO_PRIVATE_KEY;
     CK_ATTRIBUTE search_template[1];
-    search_template[0].type       = CKA_CLASS;
-    search_template[0].pValue     = &obj_class;
+    search_template[0].type = CKA_CLASS;
+    search_template[0].pValue = &obj_class;
     search_template[0].ulValueLen = sizeof(obj_class);
 
     rv = fn_FindObjectsInit(session, search_template, 1);
     if (rv != CKR_OK) {
         EVLOG_error << "C_FindObjectsInit failed when counting keys: 0x" << std::hex << rv;
-        if (we_logged_in) fn_Logout(session);
+        if (we_logged_in)
+            fn_Logout(session);
         fn_CloseSession(session);
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return std::nullopt;
     }
 
@@ -443,9 +445,11 @@ std::optional<std::size_t> PKCS11Helper::count_keys_on_token() {
         if (rv != CKR_OK) {
             EVLOG_error << "C_FindObjects failed when counting keys: 0x" << std::hex << rv;
             fn_FindObjectsFinal(session);
-            if (we_logged_in) fn_Logout(session);
+            if (we_logged_in)
+                fn_Logout(session);
             fn_CloseSession(session);
-            if (we_initialized) fn_Finalize(nullptr);
+            if (we_initialized)
+                fn_Finalize(nullptr);
             return std::nullopt;
         }
         total_count += found;
@@ -481,21 +485,24 @@ void PKCS11Helper::ensure_token_initialised() {
         throw std::runtime_error(std::string("Failed to load PKCS#11 module ") + config.module_path + ": " + dlerror());
     }
 
-    auto module_cleanup = [](void* m) { if (m) dlclose(m); };
+    auto module_cleanup = [](void* m) {
+        if (m)
+            dlclose(m);
+    };
     std::unique_ptr<void, decltype(module_cleanup)> module_guard(module, module_cleanup);
 
-    auto fn_Initialize   = reinterpret_cast<PFN_C_Initialize>  (dlsym(module, "C_Initialize"));
-    auto fn_Finalize     = reinterpret_cast<PFN_C_Finalize>    (dlsym(module, "C_Finalize"));
+    auto fn_Initialize = reinterpret_cast<PFN_C_Initialize>(dlsym(module, "C_Initialize"));
+    auto fn_Finalize = reinterpret_cast<PFN_C_Finalize>(dlsym(module, "C_Finalize"));
     auto fn_GetTokenInfo = reinterpret_cast<PFN_C_GetTokenInfo>(dlsym(module, "C_GetTokenInfo"));
-    auto fn_InitToken    = reinterpret_cast<PFN_C_InitToken>   (dlsym(module, "C_InitToken"));
-    auto fn_InitPIN      = reinterpret_cast<PFN_C_InitPIN>     (dlsym(module, "C_InitPIN"));
-    auto fn_OpenSession  = reinterpret_cast<PFN_C_OpenSession> (dlsym(module, "C_OpenSession"));
+    auto fn_InitToken = reinterpret_cast<PFN_C_InitToken>(dlsym(module, "C_InitToken"));
+    auto fn_InitPIN = reinterpret_cast<PFN_C_InitPIN>(dlsym(module, "C_InitPIN"));
+    auto fn_OpenSession = reinterpret_cast<PFN_C_OpenSession>(dlsym(module, "C_OpenSession"));
     auto fn_CloseSession = reinterpret_cast<PFN_C_CloseSession>(dlsym(module, "C_CloseSession"));
-    auto fn_Login        = reinterpret_cast<PFN_C_Login>       (dlsym(module, "C_Login"));
-    auto fn_Logout       = reinterpret_cast<PFN_C_Logout>      (dlsym(module, "C_Logout"));
+    auto fn_Login = reinterpret_cast<PFN_C_Login>(dlsym(module, "C_Login"));
+    auto fn_Logout = reinterpret_cast<PFN_C_Logout>(dlsym(module, "C_Logout"));
 
-    if (!fn_Initialize || !fn_Finalize || !fn_GetTokenInfo || !fn_InitToken || !fn_InitPIN ||
-        !fn_OpenSession || !fn_CloseSession || !fn_Login || !fn_Logout) {
+    if (!fn_Initialize || !fn_Finalize || !fn_GetTokenInfo || !fn_InitToken || !fn_InitPIN || !fn_OpenSession ||
+        !fn_CloseSession || !fn_Login || !fn_Logout) {
         throw std::runtime_error(std::string("Failed to resolve required PKCS#11 functions from ") +
                                  config.module_path);
     }
@@ -509,7 +516,10 @@ void PKCS11Helper::ensure_token_initialised() {
     }
 
     // Helper to ensure C_Finalize is called on all exit paths (only if we initialised)
-    auto finalize_guard = [&]() { if (we_initialized) fn_Finalize(nullptr); };
+    auto finalize_guard = [&]() {
+        if (we_initialized)
+            fn_Finalize(nullptr);
+    };
 
     // Query the token info for the configured slot
     CK_TOKEN_INFO token_info;
@@ -529,7 +539,7 @@ void PKCS11Helper::ensure_token_initialised() {
     auto end = current_label.find_last_not_of(' ');
     current_label.resize(end != std::string::npos ? end + 1 : 0);
 
-    const bool token_initialised   = (token_info.flags & CKF_TOKEN_INITIALIZED)    != 0;
+    const bool token_initialised = (token_info.flags & CKF_TOKEN_INITIALIZED) != 0;
     const bool user_pin_initialised = (token_info.flags & CKF_USER_PIN_INITIALIZED) != 0;
 
     if (token_initialised) {
@@ -537,9 +547,8 @@ void PKCS11Helper::ensure_token_initialised() {
         if (current_label != config.token) {
             finalize_guard();
             std::ostringstream oss;
-            oss << "HSM slot " << config.slot << " contains token '" << current_label
-                << "' but configuration expects '" << config.token
-                << "' — refusing to start. Either set pkcs11_token to '" << current_label
+            oss << "HSM slot " << config.slot << " contains token '" << current_label << "' but configuration expects '"
+                << config.token << "' — refusing to start. Either set pkcs11_token to '" << current_label
                 << "' to use the existing token, or set pkcs11_slot to a different slot.";
             throw std::runtime_error(oss.str());
         }
@@ -547,8 +556,8 @@ void PKCS11Helper::ensure_token_initialised() {
         if (user_pin_initialised) {
             // Token is fully ready — verify the user PIN is correct before proceeding
             CK_SESSION_HANDLE verify_session = 0;
-            rv = fn_OpenSession(static_cast<CK_SLOT_ID>(config.slot),
-                                CKF_SERIAL_SESSION | CKF_RW_SESSION, nullptr, nullptr, &verify_session);
+            rv = fn_OpenSession(static_cast<CK_SLOT_ID>(config.slot), CKF_SERIAL_SESSION | CKF_RW_SESSION, nullptr,
+                                nullptr, &verify_session);
             if (rv != CKR_OK) {
                 finalize_guard();
                 std::ostringstream oss;
@@ -557,16 +566,14 @@ void PKCS11Helper::ensure_token_initialised() {
             }
 
             std::string verify_pin = config.pin;
-            rv = fn_Login(verify_session, CKU_USER,
-                          reinterpret_cast<CK_UTF8CHAR*>(verify_pin.data()),
+            rv = fn_Login(verify_session, CKU_USER, reinterpret_cast<CK_UTF8CHAR*>(verify_pin.data()),
                           static_cast<CK_ULONG>(verify_pin.size()));
             if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
                 fn_CloseSession(verify_session);
                 finalize_guard();
                 std::ostringstream oss;
-                oss << "HSM user PIN verification failed for token '" << current_label
-                    << "' on slot " << config.slot << " (0x" << std::hex << rv
-                    << ") — check that pkcs11_pin is correct";
+                oss << "HSM user PIN verification failed for token '" << current_label << "' on slot " << config.slot
+                    << " (0x" << std::hex << rv << ") — check that pkcs11_pin is correct";
                 throw std::runtime_error(oss.str());
             }
 
@@ -579,13 +586,13 @@ void PKCS11Helper::ensure_token_initialised() {
         }
     }
 
-    std::string so_pin  = config.pin;
+    std::string so_pin = config.pin;
     std::string user_pin = config.pin;
 
     if (!token_initialised) {
         // Token is present but has never been initialised — run C_InitToken
-        EVLOG_warning << "HSM token on slot " << config.slot
-                      << " is not initialised — initialising with label '" << config.token << "'";
+        EVLOG_warning << "HSM token on slot " << config.slot << " is not initialised — initialising with label '"
+                      << config.token << "'";
 
         // Build the 32-byte space-padded label required by C_InitToken
         CK_UTF8CHAR padded_label[32];
@@ -593,10 +600,8 @@ void PKCS11Helper::ensure_token_initialised() {
         std::size_t copy_len = std::min(config.token.size(), sizeof(padded_label));
         std::memcpy(padded_label, config.token.data(), copy_len);
 
-        rv = fn_InitToken(static_cast<CK_SLOT_ID>(config.slot),
-                          reinterpret_cast<CK_UTF8CHAR*>(so_pin.data()),
-                          static_cast<CK_ULONG>(so_pin.size()),
-                          padded_label);
+        rv = fn_InitToken(static_cast<CK_SLOT_ID>(config.slot), reinterpret_cast<CK_UTF8CHAR*>(so_pin.data()),
+                          static_cast<CK_ULONG>(so_pin.size()), padded_label);
         if (rv != CKR_OK) {
             finalize_guard();
             std::ostringstream oss;
@@ -613,8 +618,8 @@ void PKCS11Helper::ensure_token_initialised() {
     // Open an R/W SO session to set the user PIN (required after C_InitToken, or
     // for a pre-initialised token that is missing a user PIN)
     CK_SESSION_HANDLE session = 0;
-    rv = fn_OpenSession(static_cast<CK_SLOT_ID>(config.slot),
-                        CKF_SERIAL_SESSION | CKF_RW_SESSION, nullptr, nullptr, &session);
+    rv = fn_OpenSession(static_cast<CK_SLOT_ID>(config.slot), CKF_SERIAL_SESSION | CKF_RW_SESSION, nullptr, nullptr,
+                        &session);
     if (rv != CKR_OK) {
         finalize_guard();
         std::ostringstream oss;
@@ -622,9 +627,7 @@ void PKCS11Helper::ensure_token_initialised() {
         throw std::runtime_error(oss.str());
     }
 
-    rv = fn_Login(session, CKU_SO,
-                  reinterpret_cast<CK_UTF8CHAR*>(so_pin.data()),
-                  static_cast<CK_ULONG>(so_pin.size()));
+    rv = fn_Login(session, CKU_SO, reinterpret_cast<CK_UTF8CHAR*>(so_pin.data()), static_cast<CK_ULONG>(so_pin.size()));
     if (rv != CKR_OK) {
         fn_CloseSession(session);
         finalize_guard();
@@ -633,9 +636,7 @@ void PKCS11Helper::ensure_token_initialised() {
         throw std::runtime_error(oss.str());
     }
 
-    rv = fn_InitPIN(session,
-                    reinterpret_cast<CK_UTF8CHAR*>(user_pin.data()),
-                    static_cast<CK_ULONG>(user_pin.size()));
+    rv = fn_InitPIN(session, reinterpret_cast<CK_UTF8CHAR*>(user_pin.data()), static_cast<CK_ULONG>(user_pin.size()));
     if (rv != CKR_OK) {
         fn_Logout(session);
         fn_CloseSession(session);
@@ -666,18 +667,21 @@ std::optional<std::set<std::string>> PKCS11Helper::get_hsm_key_labels() {
         return std::nullopt;
     }
 
-    auto module_cleanup = [](void* m) { if (m) dlclose(m); };
+    auto module_cleanup = [](void* m) {
+        if (m)
+            dlclose(m);
+    };
     std::unique_ptr<void, decltype(module_cleanup)> module_guard(module, module_cleanup);
 
-    auto fn_Initialize        = reinterpret_cast<PFN_C_Initialize>       (dlsym(module, "C_Initialize"));
-    auto fn_Finalize          = reinterpret_cast<PFN_C_Finalize>         (dlsym(module, "C_Finalize"));
-    auto fn_OpenSession       = reinterpret_cast<PFN_C_OpenSession>      (dlsym(module, "C_OpenSession"));
-    auto fn_CloseSession      = reinterpret_cast<PFN_C_CloseSession>     (dlsym(module, "C_CloseSession"));
-    auto fn_Login             = reinterpret_cast<PFN_C_Login>            (dlsym(module, "C_Login"));
-    auto fn_Logout            = reinterpret_cast<PFN_C_Logout>           (dlsym(module, "C_Logout"));
-    auto fn_FindObjectsInit   = reinterpret_cast<PFN_C_FindObjectsInit>  (dlsym(module, "C_FindObjectsInit"));
-    auto fn_FindObjects       = reinterpret_cast<PFN_C_FindObjects>      (dlsym(module, "C_FindObjects"));
-    auto fn_FindObjectsFinal  = reinterpret_cast<PFN_C_FindObjectsFinal> (dlsym(module, "C_FindObjectsFinal"));
+    auto fn_Initialize = reinterpret_cast<PFN_C_Initialize>(dlsym(module, "C_Initialize"));
+    auto fn_Finalize = reinterpret_cast<PFN_C_Finalize>(dlsym(module, "C_Finalize"));
+    auto fn_OpenSession = reinterpret_cast<PFN_C_OpenSession>(dlsym(module, "C_OpenSession"));
+    auto fn_CloseSession = reinterpret_cast<PFN_C_CloseSession>(dlsym(module, "C_CloseSession"));
+    auto fn_Login = reinterpret_cast<PFN_C_Login>(dlsym(module, "C_Login"));
+    auto fn_Logout = reinterpret_cast<PFN_C_Logout>(dlsym(module, "C_Logout"));
+    auto fn_FindObjectsInit = reinterpret_cast<PFN_C_FindObjectsInit>(dlsym(module, "C_FindObjectsInit"));
+    auto fn_FindObjects = reinterpret_cast<PFN_C_FindObjects>(dlsym(module, "C_FindObjects"));
+    auto fn_FindObjectsFinal = reinterpret_cast<PFN_C_FindObjectsFinal>(dlsym(module, "C_FindObjectsFinal"));
     auto fn_GetAttributeValue = reinterpret_cast<PFN_C_GetAttributeValue>(dlsym(module, "C_GetAttributeValue"));
 
     if (!fn_Initialize || !fn_Finalize || !fn_OpenSession || !fn_CloseSession || !fn_Login || !fn_Logout ||
@@ -694,11 +698,12 @@ std::optional<std::set<std::string>> PKCS11Helper::get_hsm_key_labels() {
     }
 
     CK_SESSION_HANDLE session = 0;
-    rv = fn_OpenSession(static_cast<CK_SLOT_ID>(config.slot), CKF_SERIAL_SESSION | CKF_RW_SESSION,
-                        nullptr, nullptr, &session);
+    rv = fn_OpenSession(static_cast<CK_SLOT_ID>(config.slot), CKF_SERIAL_SESSION | CKF_RW_SESSION, nullptr, nullptr,
+                        &session);
     if (rv != CKR_OK) {
         EVLOG_error << "C_OpenSession failed: 0x" << std::hex << rv;
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return std::nullopt;
     }
 
@@ -709,23 +714,26 @@ std::optional<std::set<std::string>> PKCS11Helper::get_hsm_key_labels() {
     if (rv != CKR_OK && rv != CKR_USER_ALREADY_LOGGED_IN) {
         EVLOG_error << "C_Login failed: 0x" << std::hex << rv;
         fn_CloseSession(session);
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return std::nullopt;
     }
 
     // Find all CKO_PRIVATE_KEY objects on the token (no label filter)
     CK_OBJECT_CLASS obj_class = CKO_PRIVATE_KEY;
     CK_ATTRIBUTE search_template[1];
-    search_template[0].type       = CKA_CLASS;
-    search_template[0].pValue     = &obj_class;
+    search_template[0].type = CKA_CLASS;
+    search_template[0].pValue = &obj_class;
     search_template[0].ulValueLen = sizeof(obj_class);
 
     rv = fn_FindObjectsInit(session, search_template, 1);
     if (rv != CKR_OK) {
         EVLOG_error << "C_FindObjectsInit failed when enumerating key labels: 0x" << std::hex << rv;
-        if (we_logged_in) fn_Logout(session);
+        if (we_logged_in)
+            fn_Logout(session);
         fn_CloseSession(session);
-        if (we_initialized) fn_Finalize(nullptr);
+        if (we_initialized)
+            fn_Finalize(nullptr);
         return std::nullopt;
     }
 
@@ -751,14 +759,14 @@ std::optional<std::set<std::string>> PKCS11Helper::get_hsm_key_labels() {
             // 32-byte maximum defined by the PKCS#11 specification for CKA_LABEL.
             CK_BYTE label_buf[256];
             CK_ATTRIBUTE label_attr;
-            label_attr.type       = CKA_LABEL;
-            label_attr.pValue     = label_buf;
+            label_attr.type = CKA_LABEL;
+            label_attr.pValue = label_buf;
             label_attr.ulValueLen = sizeof(label_buf);
 
             rv = fn_GetAttributeValue(session, handles[i], &label_attr, 1);
             if (rv != CKR_OK) {
-                EVLOG_warning << "C_GetAttributeValue failed for object handle "
-                              << handles[i] << ": 0x" << std::hex << rv << " — skipping";
+                EVLOG_warning << "C_GetAttributeValue failed for object handle " << handles[i] << ": 0x" << std::hex
+                              << rv << " — skipping";
                 continue;
             }
 
@@ -774,9 +782,11 @@ std::optional<std::set<std::string>> PKCS11Helper::get_hsm_key_labels() {
     }
 
     fn_FindObjectsFinal(session);
-    if (we_logged_in) fn_Logout(session);
+    if (we_logged_in)
+        fn_Logout(session);
     fn_CloseSession(session);
-    if (we_initialized) fn_Finalize(nullptr);
+    if (we_initialized)
+        fn_Finalize(nullptr);
 
     if (error) {
         return std::nullopt;
@@ -811,8 +821,7 @@ void PKCS11Helper::delete_hsm_orphaned_keys(const std::vector<fs::path>& key_dir
             }
             auto label_opt = extract_label_from_tkey_file(entry.path());
             if (label_opt.has_value()) {
-                EVLOG_debug << "Found on-disk .tkey label: '" << label_opt.value()
-                            << "' (" << entry.path() << ")";
+                EVLOG_debug << "Found on-disk .tkey label: '" << label_opt.value() << "' (" << entry.path() << ")";
                 disk_labels.insert(std::move(label_opt.value()));
             } else {
                 EVLOG_warning << "Could not extract label from .tkey file: " << entry.path()
@@ -854,7 +863,8 @@ std::optional<std::string> PKCS11Helper::extract_label_from_tkey_file(const fs::
             return std::nullopt;
         }
 
-        std::string base64_data = content.substr(begin_pos + begin_marker.size(), end_pos - begin_pos - begin_marker.size());
+        std::string base64_data =
+            content.substr(begin_pos + begin_marker.size(), end_pos - begin_pos - begin_marker.size());
 
         // Base64 decode using OpenSSL
         BIO* b64 = BIO_new(BIO_f_base64());
