@@ -116,6 +116,17 @@ cmds:
         description: The plug and charge configuration object
         type: object
         $ref: /evse_manager#/PlugAndChargeConfiguration
+  set_evse_id:
+    description: >-
+      Sets the EVSEID to be used in ISO 15118 HLC sessions. Takes effect at the
+      start of the next ISO 15118 session; any session already in progress
+      continues with the EVSEID that was assigned when that session started.
+    arguments:
+      evse_id:
+        description: >-
+          EVSEID string for ISO 15118 messages, e.g. "DE*PNX*E1234567*1".
+          Must be between 7 and 37 characters.
+        type: string
   update_allowed_energy_transfer_modes:
     description: >-
       Sets the supported energy transfer mode for ISO15118. It is expected that this command will update the ISO15118

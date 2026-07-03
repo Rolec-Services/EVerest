@@ -243,6 +243,21 @@ void OCPP201::init_module_configuration() {
     for (const auto& evse_manager : this->r_evse_manager) {
         evse_manager->call_set_plug_and_charge_configuration(pnc_config);
     }
+
+    // Push ISO15118EvseId to each EvseManager if a valid (non-placeholder) value is configured.
+    for (int32_t evse_id = 1; evse_id <= static_cast<int32_t>(this->r_evse_manager.size()); ++evse_id) {
+        const auto evse_component = ocpp::v2::EvseComponentVariables::get_component_variable(
+                                        evse_id, ocpp::v2::EvseComponentVariables::ISO15118EvseId)
+                                        .component;
+        const auto response = this->charge_point->request_value<std::string>(
+            evse_component, ocpp::v2::EvseComponentVariables::ISO15118EvseId, ocpp::v2::AttributeEnum::Actual);
+        if (response.status == ocpp::v2::GetVariableStatusEnum::Accepted and response.value.has_value() and
+            response.value.value() != "DEFAULT_EVSE_ID") {
+            EVLOG_info << "Setting EVSEID for EVSE " << evse_id << " to: " << response.value.value()
+                       << " (from ISO15118EvseId device model variable)";
+            this->r_evse_manager.at(evse_id - 1)->call_set_evse_id(response.value.value());
+        }
+    }
 }
 
 std::map<int32_t, int32_t> OCPP201::get_connector_structure() {
@@ -700,6 +715,19 @@ void OCPP201::ready() {
                 ocpp::conversions::string_to_bool(set_variable_data.attributeValue.get());
             for (const auto& evse_manager : this->r_evse_manager) {
                 evse_manager->call_set_plug_and_charge_configuration(pnc_config);
+            }
+        } else if (set_variable_data.component.name.get() == std::string("EVSE") and
+                   set_variable_data.variable.name.get() ==
+                       ocpp::v2::EvseComponentVariables::ISO15118EvseId.name.get() and
+                   set_variable_data.component.evse.has_value()) {
+            const int32_t evse_id = set_variable_data.component.evse.value().id;
+            const std::string& new_evse_id = set_variable_data.attributeValue.get();
+            if (evse_id >= 1 and evse_id <= static_cast<int32_t>(this->r_evse_manager.size())) {
+                EVLOG_info << "Setting EVSEID for EVSE " << evse_id << " to: " << new_evse_id
+                           << " (takes effect at next ISO 15118 session)";
+                this->r_evse_manager.at(evse_id - 1)->call_set_evse_id(new_evse_id);
+            } else {
+                EVLOG_warning << "Received ISO15118EvseId update for out-of-range EVSE id: " << evse_id;
             }
         }
     };

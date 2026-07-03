@@ -354,6 +354,10 @@ void EvseManager::ready() {
     ready_for_capabilities.store(true);
     hw_capabilities.notify_all();
 
+    // Initialise session_evse_id to the static config fallback. It will be snapshotted
+    // from pending_evse_id (if set by OCPP) at the start of each session.
+    session_evse_id = config.evse_id;
+
     if (r_connector_lock.size() > 0) {
         bsp->signal_lock.connect([this]() { r_connector_lock[0]->call_lock(); });
         bsp->signal_unlock.connect([this]() { r_connector_lock[0]->call_unlock(); });
@@ -361,8 +365,9 @@ void EvseManager::ready() {
 
     if (hlc_enabled) {
 
-        // Set up EVSE ID
-        types::iso15118::EVSEID evseid = {config.evse_id, config.evse_id_din};
+        // Set up EVSE ID. session_evse_id holds the value for the current (or next) session;
+        // it is snapshotted from pending_evse_id at session start, falling back to config.evse_id.
+        types::iso15118::EVSEID evseid = {session_evse_id, config.evse_id_din};
 
         // Set up auth options for HLC
         std::vector<types::iso15118::PaymentOption> payment_options;
@@ -462,6 +467,7 @@ void EvseManager::ready() {
         });
 
         auto sae_mode = types::iso15118::SaeJ2847BidiMode::None;
+        hlc_sae_mode = sae_mode;
 
         std::vector<types::iso15118::EnergyTransferMode> initial_energy_transfers;
 
@@ -946,6 +952,7 @@ void EvseManager::ready() {
             if (config.sae_j2847_2_bpt_enabled == true) {
 
                 sae_mode = types::iso15118::string_to_sae_j2847bidi_mode(config.sae_j2847_2_bpt_mode);
+                hlc_sae_mode = sae_mode;
 
                 r_hlc[0]->subscribe_sae_bidi_mode_active([this] {
                     sae_bidi_active = true;
@@ -1138,6 +1145,14 @@ void EvseManager::ready() {
         if (hlc_enabled) {
             // Reset HLC auth waiting flags on new session
             if (event == CPEvent::CarPluggedIn) {
+                // Snapshot the EVSEID for this session and push it to the HLC layer.
+                // This must happen here (on CarPluggedIn, before SLAC/ISO 15118 begins)
+                // rather than at session_started, because call_setup() writes into
+                // EvseV2G's v2g_ctx which is shared across all sessions. Doing it here
+                // ensures EvseV2G always uses the OCPP-configured EVSEID for the
+                // upcoming ISO 15118 handshake.
+                session_evse_id = pending_evse_id.value_or(config.evse_id);
+                r_hlc[0]->call_setup({session_evse_id, config.evse_id_din}, hlc_sae_mode, config.session_logging);
                 r_hlc[0]->call_reset_error();
                 r_hlc[0]->call_ac_contactor_closed(false);
                 r_hlc[0]->call_stop_charging(false);
@@ -1529,7 +1544,8 @@ void EvseManager::ready_to_start_charging() {
     charger->enable_disable_initial_state_publish();
 
     this->p_evse->publish_ready(true);
-    EVLOG_info << fmt::format(fmt::emphasis::bold | fg(fmt::terminal_color::green), "🌀🌀🌀 Ready to start charging 🌀🌀🌀");
+    EVLOG_info << fmt::format(fmt::emphasis::bold | fg(fmt::terminal_color::green),
+                              "🌀🌀🌀 Ready to start charging 🌀🌀🌀");
     if (!initial_powermeter_value_received) {
         EVLOG_warning << "No powermeter value received yet!";
     }
@@ -1568,7 +1584,7 @@ void EvseManager::setup_fake_DC_mode() {
                    utils::get_session_id_type_from_string(config.session_id_type),
                    config.hlc_charge_loop_without_energy_timeout_s);
 
-    types::iso15118::EVSEID evseid = {config.evse_id, config.evse_id_din};
+    types::iso15118::EVSEID evseid = {session_evse_id, config.evse_id_din};
 
     // Set up energy transfer modes for HLC. For now we only support either DC or AC, not both at the same time.
     std::vector<types::iso15118::EnergyTransferMode> transfer_modes;
@@ -1611,7 +1627,7 @@ void EvseManager::setup_AC_mode() {
                    utils::get_session_id_type_from_string(config.session_id_type),
                    config.hlc_charge_loop_without_energy_timeout_s);
 
-    types::iso15118::EVSEID evseid = {config.evse_id, config.evse_id_din};
+    types::iso15118::EVSEID evseid = {session_evse_id, config.evse_id_din};
 
     // Set up energy transfer modes for HLC. For now we only support either DC or AC, not both at the same time.
     std::vector<types::iso15118::EnergyTransferMode> transfer_modes;

@@ -25,7 +25,7 @@ class evse_managerImpl : public evse_managerImplBase {
 public:
     evse_managerImpl() = delete;
     evse_managerImpl(Everest::ModuleAdapter* ev, const Everest::PtrContainer<EvseManager>& mod, Conf& config) :
-        evse_managerImplBase(ev, "evse"), mod(mod), config(config){};
+        evse_managerImplBase(ev, "evse"), mod(mod), config(config) {};
 
     // ev@8ea32d28-373f-4c90-ae5e-b4fcc74e2a61:v1
     // insert your public definitions here
@@ -51,6 +51,7 @@ protected:
         types::evse_manager::PlugAndChargeConfiguration& plug_and_charge_configuration) override;
     virtual types::evse_manager::UpdateAllowedEnergyTransferModesResult handle_update_allowed_energy_transfer_modes(
         std::vector<types::iso15118::EnergyTransferMode>& allowed_energy_transfer_modes) override;
+    virtual void handle_set_evse_id(std::string& evse_id) override;
 
     // ev@d2d1847a-7b88-41dd-ad07-92785f06f5c4:v1
     // insert your protected definitions here

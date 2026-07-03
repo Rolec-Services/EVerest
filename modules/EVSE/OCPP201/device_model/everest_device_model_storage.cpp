@@ -186,7 +186,8 @@ std::vector<DeviceModelVariable> build_evse_variables(const float max_power) {
             make_variable(ocpp::v2::EvseComponentVariables::AllowReset.name,
                           EvseDefinitions::Characteristics::AllowReset, "false"),
             make_variable(ocpp::v2::EvseComponentVariables::ISO15118EvseId.name,
-                          EvseDefinitions::Characteristics::ISO15118EvseId, "DEFAULT_EVSE_ID")};
+                          EvseDefinitions::Characteristics::ISO15118EvseId, "DEFAULT_EVSE_ID",
+                          ocpp::v2::MutabilityEnum::ReadWrite)};
 }
 
 // Populates Connector variables

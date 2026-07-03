@@ -162,7 +162,7 @@ public:
         r_over_voltage_monitor(std::move(r_over_voltage_monitor)),
         r_powersupply_DC(std::move(r_powersupply_DC)),
         r_store(std::move(r_store)),
-        config(config){};
+        config(config) {};
 
     Everest::MqttProvider& mqtt;
     Everest::TelemetryProvider& telemetry;
@@ -239,6 +239,22 @@ public:
     std::string selected_protocol = "Unknown";
 
     std::atomic_bool sae_bidi_active{false};
+
+    // EVSEID to use in ISO 15118 HLC sessions.
+    //
+    // pending_evse_id: set by OCPP (via set_evse_id) when the CSMS updates ConnectorEvseIds
+    //   (OCPP 1.6) or ISO15118EvseId (OCPP 2.0.1). Absent means no OCPP-provided value is
+    //   configured; the static config.evse_id fallback will be used.
+    //
+    // session_evse_id: snapshotted from pending_evse_id (or config.evse_id) at session start
+    //   and held constant for the entire session lifetime. Initialised to config.evse_id at
+    //   module startup so it is valid before any session begins.
+    std::optional<std::string> pending_evse_id;
+    std::string session_evse_id;
+
+    // SAE J2847/2 bidi mode, derived from config once at startup and used when
+    // calling call_setup() on CarPluggedIn to re-push the EVSEID to EvseV2G.
+    types::iso15118::SaeJ2847BidiMode hlc_sae_mode{types::iso15118::SaeJ2847BidiMode::None};
 
     void ready_to_start_charging();
 

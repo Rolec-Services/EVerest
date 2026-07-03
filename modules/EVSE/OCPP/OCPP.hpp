@@ -119,7 +119,7 @@ public:
         r_data_transfer(std::move(r_data_transfer)),
         r_display_message(std::move(r_display_message)),
         r_extensions_15118(std::move(r_extensions_15118)),
-        config(config){};
+        config(config) {};
 
     Everest::MqttProvider& mqtt;
     const std::unique_ptr<ocpp_1_6_charge_pointImplBase> p_main;
@@ -175,6 +175,9 @@ private:
     void init_evse_maps();
     void init_module_configuration();
     void handle_config_key(const ocpp::v16::KeyValue& kv);
+    // Parse the ConnectorEvseIds comma-separated list and push each entry to the
+    // corresponding EvseManager instance via call_set_evse_id().
+    void push_connector_evse_ids(const std::string& connector_evse_ids_str);
     EvseConnectorMap evse_connector_map;                 // provides access to OCPP connector id by using
                                                          // EVerests evse and connector id
     std::map<int32_t, int32_t> connector_evse_index_map; // provides access to r_evse_manager index by

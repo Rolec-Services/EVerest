@@ -13,6 +13,7 @@
 #include "ocpp/common/types.hpp"
 #include "ocpp/v16/charge_point_configuration.hpp"
 #include "ocpp/v16/types.hpp"
+#include "ocpp/v16/utils.hpp"
 #include <everest/conversions/ocpp/ocpp_conversions.hpp>
 #include <fmt/core.h>
 
@@ -36,6 +37,7 @@ const std::string SWITCHING_PHASES_REASON = "SwitchingPhases";
 const ocpp::CiString<50> CONNECTION_TIMEOUT_CONFIG_KEY = "ConnectionTimeout";
 const ocpp::CiString<50> ISO15118_PNC_ENABLED_CONFIG_KEY = "ISO15118PnCEnabled";
 const ocpp::CiString<50> CENTRAL_CONTRACT_VALIDATION_ALLOWED_CONFIG_KEY = "CentralContractValidationAllowed";
+const ocpp::CiString<50> CONNECTOR_EVSE_IDS_CONFIG_KEY = "ConnectorEvseIds";
 
 namespace fs = std::filesystem;
 
@@ -458,6 +460,41 @@ void OCPP::handle_config_key(const ocpp::v16::KeyValue& kv) {
         types::evse_manager::PlugAndChargeConfiguration pnc_config;
         pnc_config.central_contract_validation_allowed = ocpp::conversions::string_to_bool(kv.value.value());
         set_pnc_config(pnc_config);
+    } else if (kv.key == CONNECTOR_EVSE_IDS_CONFIG_KEY and kv.value.has_value()) {
+        this->push_connector_evse_ids(kv.value.value().get());
+    }
+}
+
+void OCPP::push_connector_evse_ids(const std::string& connector_evse_ids_str) {
+    const auto evse_ids = ocpp::v16::utils::from_csl(connector_evse_ids_str);
+    const std::size_t expected = this->connector_evse_index_map.size();
+
+    if (evse_ids.size() != expected) {
+        EVLOG_warning << "ConnectorEvseIds has " << evse_ids.size() << " entries but system has " << expected
+                      << " OCPP connector(s). Applying what is available.";
+    }
+
+    for (std::size_t i = 0; i < evse_ids.size(); ++i) {
+        const int32_t ocpp_connector_id = static_cast<int32_t>(i + 1);
+        const std::string& evse_id = evse_ids[i];
+
+        // Basic length sanity check (mirrors areValidEvseIds: 7..37 chars per HUB-24-003)
+        if (evse_id.size() < 7 || evse_id.size() > 37) {
+            EVLOG_warning << "ConnectorEvseIds entry " << ocpp_connector_id << " has invalid length (" << evse_id.size()
+                          << " chars); skipping.";
+            continue;
+        }
+
+        if (this->connector_evse_index_map.count(ocpp_connector_id) == 0) {
+            EVLOG_warning << "ConnectorEvseIds entry " << ocpp_connector_id
+                          << " has no matching OCPP connector; skipping.";
+            continue;
+        }
+
+        const int32_t evse_idx = this->connector_evse_index_map.at(ocpp_connector_id);
+        EVLOG_info << "Setting EVSEID for OCPP connector " << ocpp_connector_id << " (r_evse_manager[" << evse_idx
+                   << "]) to: " << evse_id;
+        this->r_evse_manager.at(evse_idx)->call_set_evse_id(evse_id);
     }
 }
 
@@ -1071,6 +1108,13 @@ void OCPP::ready() {
         [this](const ocpp::v16::KeyValue& key_value) { this->handle_config_key(key_value); });
 
     this->init_module_configuration();
+
+    // Push ConnectorEvseIds to EvseManagers if configured. Must be done after
+    // init_evse_connector_map() (above) has built connector_evse_index_map.
+    const auto connector_evse_ids = this->charge_point_config->getConnectorEvseIds();
+    if (connector_evse_ids.has_value()) {
+        this->push_connector_evse_ids(connector_evse_ids.value());
+    }
 
     // if charger information interface is connected, override only these specific
     // properties which were loaded from configuration file(s)

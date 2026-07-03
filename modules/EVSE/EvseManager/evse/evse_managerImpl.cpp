@@ -497,5 +497,11 @@ evse_managerImpl::handle_update_allowed_energy_transfer_modes(
     return types::evse_manager::UpdateAllowedEnergyTransferModesResult::Accepted;
 }
 
+void evse_managerImpl::handle_set_evse_id(std::string& evse_id) {
+    EVLOG_info << "Received new EVSEID from OCPP: " << evse_id
+               << " (will take effect at the start of the next ISO 15118 session)";
+    mod->pending_evse_id = evse_id;
+}
+
 } // namespace evse
 } // namespace module
