@@ -396,6 +396,11 @@ InstallCertificateResult EvseSecurity::install_ca_certificate(const std::string&
             return InstallCertificateResult::Expired;
         }
 
+        if (!new_cert.is_selfsigned()) {
+            EVLOG_error << "Rejecting CA certificate install: certificate is not self-signed (not a root CA)";
+            return InstallCertificateResult::InvalidCertificateChain;
+        }
+
         // Load existing
         const auto ca_bundle_path = this->ca_bundle_path_map.at(certificate_type);
 
