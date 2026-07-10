@@ -3758,7 +3758,7 @@ std::optional<ConfigurationStatus> ChargePointConfiguration::set(const CiString<
     } else if (key == "OcspRequestInterval") {
         try {
             auto [valid, ocsp_request_interval] = is_positive_integer(value.get());
-            if (!valid or ocsp_request_interval < 86400) {
+            if (!valid or ocsp_request_interval < 43200) {
                 return ConfigurationStatus::Rejected;
             }
             this->setOcspRequestInterval(ocsp_request_interval);

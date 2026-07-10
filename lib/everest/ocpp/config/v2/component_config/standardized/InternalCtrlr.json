@@ -541,7 +541,7 @@
       "OcspRequestInterval": {
           "variable_name": "OcspRequestInterval",
           "characteristics": {
-              "minLimit": 86400,
+              "minLimit": 43200,
               "supportsMonitoring": true,
               "dataType": "integer"
           },
@@ -552,7 +552,7 @@
               }
           ],
           "description": "Interval in seconds used to request OCSP revocation status information on the CSO Sub-CA certificates",
-          "minimum": 86400,
+          "minimum": 43200,
           "default": "604800",
           "type": "integer"
       },
