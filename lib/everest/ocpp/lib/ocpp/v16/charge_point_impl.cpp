@@ -1986,8 +1986,10 @@ ChargePointImpl::set_configuration_key_internal(CiString<50> key, CiString<500> 
                     }
                 } else if (key == "OcspRequestInterval") {
                     if (is_iso15118_certificate_management_enabled()) {
+                        // Trigger an immediate OCSP cache refresh; the timer callback will re-arm
+                        // itself with the new interval value after the update completes.
                         ocsp_request_timer->stop();
-                        ocsp_request_timer->interval(std::chrono::seconds(configuration.getOcspRequestInterval()));
+                        ocsp_request_timer->timeout(std::chrono::seconds(0));
                     }
                 } else if (key == "NextTimeOffsetTransitionDateTime") {
                     const auto next_time_offset_transition_date_time =
