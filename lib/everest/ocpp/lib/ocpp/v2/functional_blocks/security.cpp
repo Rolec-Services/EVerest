@@ -19,8 +19,6 @@
 #include <ocpp/v2/messages/SecurityEventNotification.hpp>
 #include <ocpp/v2/messages/SignCertificate.hpp>
 
-constexpr std::int32_t minimum_cert_signing_wait_time_seconds = 250;
-
 namespace ocpp::v2 {
 
 Security::Security(const FunctionalBlockContext& functional_block_context, MessageLogging& logging,
@@ -320,9 +318,8 @@ void Security::handle_sign_certificate_response(CallResult<SignCertificateRespon
             this->awaited_certificate_signing_use_enum = std::nullopt;
             return;
         }
-        const int retry_backoff_seconds = clamp_to<int>(
-            static_cast<double>(std::max(minimum_cert_signing_wait_time_seconds, cert_signing_wait_minimum.value())) *
-            std::pow(2, this->csr_attempt)); // prevent immediate repetition in case of value 0
+        const int retry_backoff_seconds =
+            clamp_to<int>(static_cast<double>(cert_signing_wait_minimum.value()) * std::pow(2, this->csr_attempt));
         this->certificate_signed_timer.timeout(
             [this]() {
                 EVLOG_info << "Did not receive CertificateSigned.req in time. Will retry with SignCertificate.req";

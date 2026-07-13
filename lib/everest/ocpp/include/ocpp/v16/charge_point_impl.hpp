@@ -125,6 +125,9 @@ private:
     std::unique_ptr<Everest::SteadyTimer> ocsp_request_timer;
     std::unique_ptr<Everest::SteadyTimer> client_certificate_timer;
     std::unique_ptr<Everest::SteadyTimer> v2g_certificate_timer;
+    std::unique_ptr<Everest::SteadyTimer> certificate_signed_timer;
+    std::int32_t csr_attempt;
+    std::optional<ocpp::CertificateSigningUseEnum> awaited_certificate_signing_use_enum;
     std::unique_ptr<Everest::SystemTimer> change_time_offset_timer;
     std::chrono::time_point<date::utc_clock> clock_aligned_meter_values_time_point;
     std::mutex meter_values_mutex;
@@ -283,6 +286,18 @@ private:
     void sign_certificate(const ocpp::CertificateSigningUseEnum& certificate_signing_use,
                           bool initiated_by_trigger_message = false);
 
+    /// \brief Resets all certificate signing retry state: stops the retry timer, resets the attempt counter and
+    /// clears the awaited certificate signing use. Called when a CertificateSigned.req is received and when an
+    /// external trigger (periodic expiry check or CSMS TriggerMessage) starts a fresh signing sequence.
+    void reset_certificate_signing_state();
+
+    /// \brief Arms the certificate_signed_timer to retry a SignCertificate request for the given \p
+    /// certificate_signing_use if the CSMS does not deliver a CertificateSigned.req in time. Uses
+    /// CertSigningWaitMinimum and CertSigningRepeatTimes to determine the backoff interval and the number of retries.
+    /// The retry is dispatched via the native SignCertificate.req path for ChargingStationCertificate and via the
+    /// DataTransfer-wrapped path for V2GCertificate.
+    void arm_certificate_signed_timer(const ocpp::CertificateSigningUseEnum& certificate_signing_use);
+
     /// \brief Checks if OCSP cache needs to be updated and executes update if necessary by using
     /// DataTransfer(GetCertificateStatus.req)
     void update_ocsp_cache();
@@ -339,6 +354,7 @@ private:
     // Security profile
     void handleExtendedTriggerMessageRequest(Call<ExtendedTriggerMessageRequest> call);
     void handleCertificateSignedRequest(Call<CertificateSignedRequest> call);
+    void handleSignCertificateResponse(CallResult<SignCertificateResponse> call_result);
     void handleGetInstalledCertificateIdsRequest(Call<GetInstalledCertificateIdsRequest> call);
     void handleDeleteCertificateRequest(Call<DeleteCertificateRequest> call);
     void handleInstallCertificateRequest(Call<InstallCertificateRequest> call);

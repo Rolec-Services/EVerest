@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Pionix GmbH and Contributors to EVerest
 
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
 #include <thread>
@@ -106,6 +107,8 @@ ChargePointImpl::ChargePointImpl(ChargePointConfigurationInterface& cfg, const f
         if (expiry_days_count < 30) {
             EVLOG_info << "CSMS client certificate is invalid in " << expiry_days_count
                        << " days. Requesting new certificate with certificate signing request";
+            // Periodic expiry check takes priority over any in-flight retry: start a fresh signing sequence.
+            this->reset_certificate_signing_state();
             this->sign_certificate(ocpp::CertificateSigningUseEnum::ChargingStationCertificate);
         } else {
             EVLOG_info << "CSMS client certificate is still valid.";
@@ -120,12 +123,17 @@ ChargePointImpl::ChargePointImpl(ChargePointConfigurationInterface& cfg, const f
         if (expiry_days_count < 30) {
             EVLOG_info << "V2GCertificate is invalid in " << expiry_days_count
                        << " days. Requesting new certificate with certificate signing request";
+            // Periodic expiry check takes priority over any in-flight retry: start a fresh signing sequence.
+            this->reset_certificate_signing_state();
             this->data_transfer_pnc_sign_certificate();
         } else {
             EVLOG_info << "V2GCertificate is still valid.";
         }
         this->v2g_certificate_timer->interval(V2G_CERTIFICATE_TIMER_INTERVAL);
     });
+
+    this->csr_attempt = 1;
+    this->certificate_signed_timer = std::make_unique<Everest::SteadyTimer>(&this->io_context);
 
     this->status = std::make_unique<ChargePointStates>(
         [this](const std::int32_t connector, const ChargePointErrorCode errorCode, const ChargePointStatus status,
@@ -1668,7 +1676,11 @@ void ChargePointImpl::handle_message(const EnhancedMessage<v16::MessageType>& me
     case MessageType::SendLocalListResponse:
     case MessageType::SetChargingProfileResponse:
     case MessageType::SignCertificate:
+        // TODO(kai): not implemented error?
+        break;
     case MessageType::SignCertificateResponse:
+        this->handleSignCertificateResponse(json_message);
+        break;
     case MessageType::SignedFirmwareStatusNotification:
     case MessageType::SignedFirmwareStatusNotificationResponse:
     case MessageType::SignedUpdateFirmwareResponse:
@@ -2814,6 +2826,8 @@ void ChargePointImpl::handleExtendedTriggerMessageRequest(ocpp::Call<ExtendedTri
         break;
     }
     case MessageTriggerEnumType::SignChargePointCertificate:
+        // CSMS-initiated trigger takes priority over any in-flight retry: start a fresh signing sequence.
+        this->reset_certificate_signing_state();
         this->sign_certificate(ocpp::CertificateSigningUseEnum::ChargingStationCertificate, true);
         break;
     case MessageTriggerEnumType::StatusNotification:
@@ -2838,6 +2852,12 @@ void ChargePointImpl::handleExtendedTriggerMessageRequest(ocpp::Call<ExtendedTri
 
 void ChargePointImpl::sign_certificate(const ocpp::CertificateSigningUseEnum& certificate_signing_use,
                                        bool initiated_by_trigger_message) {
+
+    if (this->awaited_certificate_signing_use_enum.has_value()) {
+        EVLOG_warning
+            << "Not sending new SignCertificate.req because still waiting for CertificateSigned.req from CSMS";
+        return;
+    }
 
     bool use_tpm = false;
 
@@ -2880,8 +2900,13 @@ void ChargePointImpl::sign_certificate(const ocpp::CertificateSigningUseEnum& ce
 
     req.csr = response.csr.value();
 
+    this->awaited_certificate_signing_use_enum = certificate_signing_use;
+
     const ocpp::Call<SignCertificateRequest> call(req);
     this->message_dispatcher->dispatch_call(call, initiated_by_trigger_message);
+
+    // Arm the retry timer in case the CSMS accepts the SignCertificate.req but never delivers a CertificateSigned.req.
+    this->arm_certificate_signed_timer(certificate_signing_use);
 }
 
 void ChargePointImpl::update_ocsp_cache() {
@@ -2900,6 +2925,9 @@ void ChargePointImpl::update_ocsp_cache() {
 
 void ChargePointImpl::handleCertificateSignedRequest(ocpp::Call<CertificateSignedRequest> call) {
     EVLOG_debug << "Received CertificateSignedRequest: " << call.msg << "\nwith messageId: " << call.uniqueId;
+
+    // CSMS delivered the signed certificate — cancel any pending retry timer and reset state.
+    this->reset_certificate_signing_state();
 
     CertificateSignedResponse response;
     response.status = CertificateSignedStatusEnumType::Rejected;
@@ -2926,6 +2954,82 @@ void ChargePointImpl::handleCertificateSignedRequest(ocpp::Call<CertificateSigne
     // reconnect with new certificate if valid and security profile is 3
     if (response.status == CertificateSignedStatusEnumType::Accepted && this->configuration.getSecurityProfile() == 3) {
         this->websocket->reconnect(1000);
+    }
+}
+
+void ChargePointImpl::reset_certificate_signing_state() {
+    this->csr_attempt = 1;
+    if (this->certificate_signed_timer != nullptr) {
+        this->certificate_signed_timer->stop();
+    }
+    this->awaited_certificate_signing_use_enum = std::nullopt;
+}
+
+void ChargePointImpl::arm_certificate_signed_timer(const ocpp::CertificateSigningUseEnum& certificate_signing_use) {
+    const auto cert_signing_wait_minimum = this->configuration.getCertSigningWaitMinimum();
+    const auto cert_signing_repeat_times = this->configuration.getCertSigningRepeatTimes();
+
+    if (!cert_signing_wait_minimum.has_value()) {
+        EVLOG_warning << "No CertSigningWaitMinimum is configured, will not attempt to retry SignCertificate.req in "
+                         "case CSMS doesn't send CertificateSigned.req";
+        return;
+    }
+    if (!cert_signing_repeat_times.has_value()) {
+        EVLOG_warning << "No CertSigningRepeatTimes is configured, will not attempt to retry SignCertificate.req in "
+                         "case CSMS doesn't send CertificateSigned.req";
+        return;
+    }
+
+    // csr_attempt starts at 1 for the initial attempt. After cert_signing_repeat_times retries we give up.
+    // When csr_attempt > cert_signing_repeat_times all retries are exhausted.
+    if (this->csr_attempt > cert_signing_repeat_times.value()) {
+        EVLOG_warning << "Exhausted all " << cert_signing_repeat_times.value()
+                      << " SignCertificate.req retries without receiving CertificateSigned.req";
+        this->reset_certificate_signing_state();
+        return;
+    }
+
+    // Exponential backoff: wait_minimum * 2^csr_attempt seconds before retrying.
+    // csr_attempt=1 on the first attempt gives a multiplier of 2, csr_attempt=2 gives 4, etc.
+    const int retry_backoff_seconds =
+        clamp_to<int>(static_cast<double>(cert_signing_wait_minimum.value()) * std::pow(2, this->csr_attempt));
+    EVLOG_info << "Waiting " << retry_backoff_seconds << "s for CertificateSigned.req (attempt " << this->csr_attempt
+               << "/" << cert_signing_repeat_times.value() << ") for "
+               << ocpp::conversions::certificate_signing_use_enum_to_string(certificate_signing_use);
+    this->certificate_signed_timer->timeout(
+        [this, certificate_signing_use]() {
+            EVLOG_info << "Did not receive CertificateSigned.req in time. Will retry with SignCertificate.req";
+            this->csr_attempt++;
+            // Clear the awaited flag so the retry dispatch is not blocked by the in-flight guard.
+            this->awaited_certificate_signing_use_enum.reset();
+            if (certificate_signing_use == ocpp::CertificateSigningUseEnum::V2GCertificate) {
+                // ISO15118 V2G certificates are requested via the DataTransfer-wrapped PnC path.
+                this->data_transfer_pnc_sign_certificate();
+            } else {
+                // ChargingStationCertificate (CSMS client/leaf) uses the native SignCertificate.req path.
+                this->sign_certificate(certificate_signing_use);
+            }
+        },
+        std::chrono::seconds(retry_backoff_seconds));
+}
+
+void ChargePointImpl::handleSignCertificateResponse(CallResult<SignCertificateResponse> call_result) {
+    EVLOG_debug << "Received SignCertificateResponse: " << call_result.msg;
+
+    if (!this->awaited_certificate_signing_use_enum.has_value()) {
+        EVLOG_warning << "Received SignCertificate.conf while not awaiting a CertificateSigned.req. This should not "
+                         "happen.";
+        return;
+    }
+
+    if (call_result.msg.status == GenericStatusEnumType::Accepted) {
+        // The retry timer was already armed when the SignCertificate.req was dispatched. Nothing more to do here;
+        // we simply wait for the CertificateSigned.req (which resets the state) or for the retry timer to fire.
+        EVLOG_info << "SignCertificate.req accepted by CSMS. Awaiting CertificateSigned.req";
+    } else {
+        // The CSMS rejected the CSR outright. Cancel the pending retry.
+        EVLOG_warning << "SignCertificate.req has not been accepted by CSMS";
+        this->reset_certificate_signing_state();
     }
 }
 
@@ -3873,6 +3977,12 @@ ocpp::v2::AuthorizeResponse ChargePointImpl::data_transfer_pnc_authorize(
 
 void ChargePointImpl::data_transfer_pnc_sign_certificate() {
 
+    if (this->awaited_certificate_signing_use_enum.has_value()) {
+        EVLOG_warning << "Not sending new SignCertificate.req (DataTransfer) because still waiting for "
+                         "CertificateSigned.req from CSMS";
+        return;
+    }
+
     if (!this->configuration.getCpoName().has_value() and
         !this->configuration.getSeccLeafSubjectOrganization().has_value()) {
         EVLOG_warning
@@ -3908,8 +4018,16 @@ void ChargePointImpl::data_transfer_pnc_sign_certificate() {
     csr_req.certificateType = ocpp::v2::CertificateSigningUseEnum::V2GCertificate;
     req.data.emplace(json(csr_req).dump());
 
+    this->awaited_certificate_signing_use_enum = ocpp::CertificateSigningUseEnum::V2GCertificate;
+
+    // Dispatch asynchronously so we never block the calling (timer/handler) thread waiting on the CSMS. The
+    // DataTransfer.conf is not inspected here; instead the retry timer below governs whether we resend the CSR.
     const Call<DataTransferRequest> call(req);
-    this->message_dispatcher->dispatch_call(call);
+    this->message_dispatcher->dispatch_call_async(call);
+
+    // Arm the retry timer in case the CSMS accepts the DataTransfer(SignCertificate) but never delivers a
+    // DataTransfer(CertificateSigned).
+    this->arm_certificate_signed_timer(ocpp::CertificateSigningUseEnum::V2GCertificate);
 }
 
 void ChargePointImpl::data_transfer_pnc_get_15118_ev_certificate(
@@ -4057,6 +4175,8 @@ void ChargePointImpl::handle_data_transfer_pnc_trigger_message(Call<DataTransfer
     this->message_dispatcher->dispatch_call_result(call_result);
 
     if (response.status == DataTransferStatus::Accepted) {
+        // CSMS-initiated trigger takes priority over any in-flight retry: start a fresh signing sequence.
+        this->reset_certificate_signing_state();
         // send sign certificate wrapped in data_transfer
         this->data_transfer_pnc_sign_certificate();
     }
@@ -4065,6 +4185,9 @@ void ChargePointImpl::handle_data_transfer_pnc_trigger_message(Call<DataTransfer
 void ChargePointImpl::handle_data_transfer_pnc_certificate_signed(Call<DataTransferRequest> call) {
     EVLOG_info << "Received Data Transfer CertificateSignedRequest: " << call.msg
                << "\nwith messageId: " << call.uniqueId;
+
+    // CSMS delivered the signed V2G certificate — cancel any pending retry timer and reset state.
+    this->reset_certificate_signing_state();
 
     DataTransferResponse response;
     response.status = DataTransferStatus::Rejected;
