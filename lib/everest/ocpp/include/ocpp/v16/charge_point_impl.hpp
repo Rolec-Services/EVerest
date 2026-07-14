@@ -126,6 +126,13 @@ private:
     std::unique_ptr<Everest::SteadyTimer> client_certificate_timer;
     std::unique_ptr<Everest::SteadyTimer> v2g_certificate_timer;
     std::unique_ptr<Everest::SteadyTimer> certificate_signed_timer;
+    // Absolute time at which the respective certificate/OCSP expiration check timer is next due to fire.
+    // These timers are stopped while the websocket is disconnected (see register_disconnected_callback) and
+    // must be re-armed on reconnect using the *remaining* time until due, not a fresh interval/initial delay,
+    // so that a flaky connection cannot indefinitely postpone certificate expiration checks.
+    std::chrono::time_point<date::utc_clock> ocsp_request_due_at;
+    std::chrono::time_point<date::utc_clock> client_certificate_check_due_at;
+    std::chrono::time_point<date::utc_clock> v2g_certificate_check_due_at;
     std::int32_t csr_attempt;
     std::optional<ocpp::CertificateSigningUseEnum> awaited_certificate_signing_use_enum;
     std::unique_ptr<Everest::SystemTimer> change_time_offset_timer;
@@ -221,6 +228,14 @@ private:
     /// \brief This function is called after a successful connection to the Websocket
     void connected_callback();
     void init_websocket();
+    /// \brief (Re-)arms the OCSP request, client certificate, and V2G certificate expiration check timers.
+    /// Used both on initial BootNotification acceptance and when reconnecting after a disconnect: in the
+    /// latter case the timers resume counting down towards their previously recorded due time instead of
+    /// restarting a full interval/initial delay, so a flaky connection cannot indefinitely postpone checks.
+    void init_certificate_expiration_check_timers();
+    /// \brief Stops the OCSP request, client certificate, and V2G certificate expiration check timers without
+    /// resetting their recorded due times, so they can be resumed later via init_certificate_expiration_check_timers.
+    void stop_certificate_expiration_check_timers();
     void init_state_machine(const std::map<int, ChargePointStatus>& connector_status_map);
     WebsocketConnectionOptions get_ws_connection_options();
     std::unique_ptr<ocpp::MessageQueue<v16::MessageType>> create_message_queue();

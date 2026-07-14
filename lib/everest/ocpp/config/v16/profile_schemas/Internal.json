@@ -287,6 +287,20 @@
             "default": 604800,
             "minimum": 43200
         },
+        "ClientCertificateExpireCheckIntervalSeconds": {
+            "$comment": "Seconds between checks for CSMS client leaf certificate expiration and potential renewal",
+            "type": "integer",
+            "readOnly": true,
+            "default": 43200,
+            "minimum": 1
+        },
+        "V2GCertificateExpireCheckIntervalSeconds": {
+            "$comment": "Seconds between checks for V2G leaf certificate expiration and potential renewal",
+            "type": "integer",
+            "readOnly": true,
+            "default": 43200,
+            "minimum": 1
+        },
         "SeccLeafSubjectCommonName": {
             "$comment": "Common Name(s) of the SECC (EVSE) leaf certificate(s). The CN must be a SECCID. The field can contain optional multiple SECCIDs if necessary.",
             "type": "string",

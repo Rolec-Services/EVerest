@@ -156,11 +156,13 @@ public:
 
     int getMaxMessageSize() override;
 
+    std::int32_t getClientCertificateExpireCheckIntervalSeconds() override;
     std::int32_t getMaxCompositeScheduleDuration() override;
     std::int32_t getOcspRequestInterval() override;
     std::int32_t getRetryBackoffRandomRange() override;
     std::int32_t getRetryBackoffRepeatTimes() override;
     std::int32_t getRetryBackoffWaitMinimum() override;
+    std::int32_t getV2GCertificateExpireCheckIntervalSeconds() override;
     std::int32_t getWaitForStopTransactionsOnResetTimeout() override;
     std::int32_t getWebsocketPongTimeout() override;
 
@@ -203,6 +205,7 @@ public:
     KeyValue getLogRotationKeyValue() override;
     KeyValue getLogRotationMaximumFileCountKeyValue() override;
     KeyValue getLogRotationMaximumFileSizeKeyValue() override;
+    KeyValue getClientCertificateExpireCheckIntervalSecondsKeyValue() override;
     KeyValue getMaxCompositeScheduleDurationKeyValue() override;
     KeyValue getMaxMessageSizeKeyValue() override;
     KeyValue getOcspRequestIntervalKeyValue() override;
@@ -218,6 +221,7 @@ public:
     KeyValue getUseSslDefaultVerifyPathsKeyValue() override;
     KeyValue getUseTPMKeyValue() override;
     KeyValue getUseTPMSeccLeafCertificateKeyValue() override;
+    KeyValue getV2GCertificateExpireCheckIntervalSecondsKeyValue() override;
     KeyValue getVerifyCsmsAllowWildcardsKeyValue() override;
     KeyValue getVerifyCsmsCommonNameKeyValue() override;
     KeyValue getWaitForStopTransactionsOnResetTimeoutKeyValue() override;

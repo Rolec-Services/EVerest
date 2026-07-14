@@ -352,6 +352,14 @@ std::int32_t ChargePointConfiguration::getMaxCompositeScheduleDuration() {
     return this->config["Internal"]["MaxCompositeScheduleDuration"];
 }
 
+std::int32_t ChargePointConfiguration::getClientCertificateExpireCheckIntervalSeconds() {
+    return this->config["Internal"]["ClientCertificateExpireCheckIntervalSeconds"];
+}
+
+std::int32_t ChargePointConfiguration::getV2GCertificateExpireCheckIntervalSeconds() {
+    return this->config["Internal"]["V2GCertificateExpireCheckIntervalSeconds"];
+}
+
 std::optional<std::int32_t> ChargePointConfiguration::getCompositeScheduleDefaultLimitAmps() {
     if (this->config["Internal"].contains("CompositeScheduleDefaultLimitAmps")) {
         return this->config["Internal"]["CompositeScheduleDefaultLimitAmps"];
@@ -729,6 +737,22 @@ KeyValue ChargePointConfiguration::getMaxCompositeScheduleDurationKeyValue() {
     kv.key = "MaxCompositeScheduleDuration";
     kv.readonly = true;
     kv.value.emplace(std::to_string(this->getMaxCompositeScheduleDuration()));
+    return kv;
+}
+
+KeyValue ChargePointConfiguration::getClientCertificateExpireCheckIntervalSecondsKeyValue() {
+    KeyValue kv;
+    kv.key = "ClientCertificateExpireCheckIntervalSeconds";
+    kv.readonly = true;
+    kv.value.emplace(std::to_string(this->getClientCertificateExpireCheckIntervalSeconds()));
+    return kv;
+}
+
+KeyValue ChargePointConfiguration::getV2GCertificateExpireCheckIntervalSecondsKeyValue() {
+    KeyValue kv;
+    kv.key = "V2GCertificateExpireCheckIntervalSeconds";
+    kv.readonly = true;
+    kv.value.emplace(std::to_string(this->getV2GCertificateExpireCheckIntervalSeconds()));
     return kv;
 }
 
@@ -3157,6 +3181,12 @@ std::optional<KeyValue> ChargePointConfiguration::get(const CiString<50>& key) {
     }
     if (key == "MaxCompositeScheduleDuration") {
         return this->getMaxCompositeScheduleDurationKeyValue();
+    }
+    if (key == "ClientCertificateExpireCheckIntervalSeconds") {
+        return this->getClientCertificateExpireCheckIntervalSecondsKeyValue();
+    }
+    if (key == "V2GCertificateExpireCheckIntervalSeconds") {
+        return this->getV2GCertificateExpireCheckIntervalSecondsKeyValue();
     }
     if (key == "CompositeScheduleDefaultLimitAmps") {
         return this->getCompositeScheduleDefaultLimitAmpsKeyValue();

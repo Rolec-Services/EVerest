@@ -18,6 +18,7 @@ const std::map<std::string, std::string> expected_key_value = {
     {"ChargePointId", "cp001"},
     {"ChargePointModel", "Yeti"},
     {"ChargePointVendor", "Pionix"},
+    {"ClientCertificateExpireCheckIntervalSeconds", "43200"},
     {"CompositeScheduleDefaultLimitAmps", "48"},
     {"CompositeScheduleDefaultLimitWatts", "33120"},
     {"CompositeScheduleDefaultNumberPhases", "3"},
@@ -40,6 +41,7 @@ const std::map<std::string, std::string> expected_key_value = {
     {"SupportedMeasurands", "Energy.Active.Import.Register,Energy.Active.Export.Register,Power.Active.Import,Voltage,"
                             "Current.Import,Frequency,Current.Offered,Power.Offered,SoC,Temperature"},
     {"UseSslDefaultVerifyPaths", "true"},
+    {"V2GCertificateExpireCheckIntervalSeconds", "43200"},
     {"VerifyCsmsAllowWildcards", "false"},
     {"VerifyCsmsCommonName", "true"},
     {"WaitForStopTransactionsOnResetTimeout", "60"},

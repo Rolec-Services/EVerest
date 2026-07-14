@@ -361,6 +361,24 @@ TEST_P(Configuration, MaxCompositeScheduleDuration) {
     EXPECT_TRUE(kv.readonly);
 }
 
+TEST_P(Configuration, ClientCertificateExpireCheckIntervalSeconds) {
+    ASSERT_NE(get(), nullptr);
+    EXPECT_EQ(get()->getClientCertificateExpireCheckIntervalSeconds(), 43200);
+    const auto kv = get()->getClientCertificateExpireCheckIntervalSecondsKeyValue();
+    EXPECT_EQ(kv.key, "ClientCertificateExpireCheckIntervalSeconds");
+    EXPECT_EQ(kv.value, "43200");
+    EXPECT_TRUE(kv.readonly);
+}
+
+TEST_P(Configuration, V2GCertificateExpireCheckIntervalSeconds) {
+    ASSERT_NE(get(), nullptr);
+    EXPECT_EQ(get()->getV2GCertificateExpireCheckIntervalSeconds(), 43200);
+    const auto kv = get()->getV2GCertificateExpireCheckIntervalSecondsKeyValue();
+    EXPECT_EQ(kv.key, "V2GCertificateExpireCheckIntervalSeconds");
+    EXPECT_EQ(kv.value, "43200");
+    EXPECT_TRUE(kv.readonly);
+}
+
 TEST_P(Configuration, MaxMessageSize) {
     ASSERT_NE(get(), nullptr);
     // initial values are from the JSON unit test config files

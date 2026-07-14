@@ -101,6 +101,8 @@ public:
     std::vector<ChargingProfilePurposeType> getIgnoredProfilePurposesOffline() override;
     std::optional<KeyValue> getIgnoredProfilePurposesOfflineKeyValue() override;
     bool setIgnoredProfilePurposesOffline(const std::string& ignored_profile_purposes_offline) override;
+    std::int32_t getClientCertificateExpireCheckIntervalSeconds() override;
+    KeyValue getClientCertificateExpireCheckIntervalSecondsKeyValue() override;
     std::int32_t getMaxCompositeScheduleDuration() override;
     KeyValue getMaxCompositeScheduleDurationKeyValue() override;
     std::optional<std::int32_t> getCompositeScheduleDefaultLimitAmps() override;
@@ -130,6 +132,8 @@ public:
     KeyValue getUseTPMKeyValue() override;
     bool getUseTPMSeccLeafCertificate() override;
     KeyValue getUseTPMSeccLeafCertificateKeyValue() override;
+    std::int32_t getV2GCertificateExpireCheckIntervalSeconds() override;
+    KeyValue getV2GCertificateExpireCheckIntervalSecondsKeyValue() override;
 
     std::string getSupportedMeasurands() override;
     KeyValue getSupportedMeasurandsKeyValue() override;

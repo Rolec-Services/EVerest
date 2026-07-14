@@ -28,8 +28,6 @@ namespace v16 {
 
 const auto ISO15118_PNC_VENDOR_ID = "org.openchargealliance.iso15118pnc";
 const auto CALIFORNIA_PRICING_VENDOR_ID = "org.openchargealliance.costmsg";
-const auto CLIENT_CERTIFICATE_TIMER_INTERVAL = std::chrono::hours(12);
-const auto V2G_CERTIFICATE_TIMER_INTERVAL = std::chrono::hours(12);
 const auto INITIAL_CERTIFICATE_REQUESTS_DELAY = std::chrono::seconds(60);
 const auto WEBSOCKET_INIT_DELAY = std::chrono::seconds(2);
 const auto DEFAULT_MESSAGE_QUEUE_SIZE_THRESHOLD = 1000;
@@ -113,7 +111,10 @@ ChargePointImpl::ChargePointImpl(ChargePointConfigurationInterface& cfg, const f
         } else {
             EVLOG_info << "CSMS client certificate is still valid.";
         }
-        this->client_certificate_timer->interval(CLIENT_CERTIFICATE_TIMER_INTERVAL);
+        const auto client_certificate_check_interval =
+            std::chrono::seconds(this->configuration.getClientCertificateExpireCheckIntervalSeconds());
+        this->client_certificate_check_due_at = date::utc_clock::now() + client_certificate_check_interval;
+        this->client_certificate_timer->interval(client_certificate_check_interval);
     });
 
     this->v2g_certificate_timer = std::make_unique<Everest::SteadyTimer>(&this->io_context, [this]() {
@@ -129,7 +130,10 @@ ChargePointImpl::ChargePointImpl(ChargePointConfigurationInterface& cfg, const f
         } else {
             EVLOG_info << "V2GCertificate is still valid.";
         }
-        this->v2g_certificate_timer->interval(V2G_CERTIFICATE_TIMER_INTERVAL);
+        const auto v2g_certificate_check_interval =
+            std::chrono::seconds(this->configuration.getV2GCertificateExpireCheckIntervalSeconds());
+        this->v2g_certificate_check_due_at = date::utc_clock::now() + v2g_certificate_check_interval;
+        this->v2g_certificate_timer->interval(v2g_certificate_check_interval);
     });
 
     this->csr_attempt = 1;
@@ -214,7 +218,9 @@ ChargePointImpl::ChargePointImpl(ChargePointConfigurationInterface& cfg, const f
             } catch (const std::runtime_error& e) {
                 EVLOG_error << "OCSP request interval could not be loaded (Using default 12 hours): " << e.what();
             }
-            this->ocsp_request_timer->interval(std::chrono::seconds(ocsp_request_interval));
+            const auto ocsp_request_interval_duration = std::chrono::seconds(ocsp_request_interval);
+            this->ocsp_request_due_at = date::utc_clock::now() + ocsp_request_interval_duration;
+            this->ocsp_request_timer->interval(ocsp_request_interval_duration);
         });
     }
 
@@ -329,15 +335,7 @@ void ChargePointImpl::init_websocket() {
             this->connection_state_changed_callback(false);
         }
         this->message_queue->pause();
-        if (this->ocsp_request_timer != nullptr) {
-            this->ocsp_request_timer->stop();
-        }
-        if (this->client_certificate_timer != nullptr) {
-            this->client_certificate_timer->stop();
-        }
-        if (this->v2g_certificate_timer != nullptr) {
-            this->v2g_certificate_timer->stop();
-        }
+        this->stop_certificate_expiration_check_timers();
         // signal_set_charging_profiles_callback since composite schedule could have changed if
         // IgnoredProfilePurposesOffline are configured when becoming offline
         if (this->signal_set_charging_profiles_callback != nullptr and
@@ -373,6 +371,62 @@ void ChargePointImpl::init_websocket() {
     });
 
     this->websocket->register_message_callback([this](const std::string& message) { this->message_callback(message); });
+}
+
+void ChargePointImpl::init_certificate_expiration_check_timers() {
+    // The OCSP request, client certificate, and V2G certificate expiration check timers are stopped whenever
+    // the websocket disconnects (see register_disconnected_callback / stop_certificate_expiration_check_timers)
+    // and are re-armed here, either for the first time after an accepted BootNotification, or again after a
+    // reconnect. Rather than restarting a fresh interval/initial delay on every reconnect - which would let a
+    // flaky connection indefinitely postpone certificate expiration checks - each timer is re-armed with the
+    // *remaining* time until its previously recorded due time. If a timer has never been armed before (its due
+    // time is still default-constructed), or its due time has already passed while disconnected, it fires
+    // immediately.
+    const auto now = date::utc_clock::now();
+    const std::chrono::time_point<date::utc_clock> unset_due_at{};
+
+    auto remaining_until_due = [&now, &unset_due_at](const std::chrono::time_point<date::utc_clock>& due_at) {
+        if (due_at == unset_due_at) {
+            return INITIAL_CERTIFICATE_REQUESTS_DELAY;
+        }
+        const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(due_at - now);
+        return remaining > std::chrono::seconds(0) ? remaining : std::chrono::seconds(0);
+    };
+
+    if (this->is_iso15118_certificate_management_enabled()) {
+        if (this->ocsp_request_timer != nullptr) {
+            const auto ocsp_remaining = remaining_until_due(this->ocsp_request_due_at);
+            this->ocsp_request_due_at = now + ocsp_remaining;
+            this->ocsp_request_timer->timeout(ocsp_remaining);
+        }
+        if (this->v2g_certificate_timer != nullptr) {
+            const auto v2g_remaining = remaining_until_due(this->v2g_certificate_check_due_at);
+            this->v2g_certificate_check_due_at = now + v2g_remaining;
+            this->v2g_certificate_timer->timeout(v2g_remaining);
+        }
+    }
+
+    if (this->configuration.getSecurityProfile() == 3 and this->client_certificate_timer != nullptr) {
+        const auto client_remaining = remaining_until_due(this->client_certificate_check_due_at);
+        this->client_certificate_check_due_at = now + client_remaining;
+        this->client_certificate_timer->stop();
+        this->client_certificate_timer->timeout(client_remaining);
+    }
+}
+
+void ChargePointImpl::stop_certificate_expiration_check_timers() {
+    // Note: this intentionally does not reset ocsp_request_due_at / client_certificate_check_due_at /
+    // v2g_certificate_check_due_at, so that init_certificate_expiration_check_timers can later resume counting
+    // down towards the originally scheduled due time instead of restarting a fresh interval.
+    if (this->ocsp_request_timer != nullptr) {
+        this->ocsp_request_timer->stop();
+    }
+    if (this->client_certificate_timer != nullptr) {
+        this->client_certificate_timer->stop();
+    }
+    if (this->v2g_certificate_timer != nullptr) {
+        this->v2g_certificate_timer->stop();
+    }
 }
 
 void ChargePointImpl::init_state_machine(const std::map<int, ChargePointStatus>& connector_status_map) {
@@ -1301,15 +1355,7 @@ bool ChargePointImpl::stop() {
         if (this->clock_aligned_meter_values_timer != nullptr) {
             this->clock_aligned_meter_values_timer->stop();
         }
-        if (this->ocsp_request_timer != nullptr) {
-            this->ocsp_request_timer->stop();
-        }
-        if (this->client_certificate_timer != nullptr) {
-            this->client_certificate_timer->stop();
-        }
-        if (this->v2g_certificate_timer != nullptr) {
-            this->v2g_certificate_timer->stop();
-        }
+        this->stop_certificate_expiration_check_timers();
         if (this->change_time_offset_timer != nullptr) {
             this->change_time_offset_timer->stop();
         }
@@ -1351,6 +1397,10 @@ void ChargePointImpl::connected_callback() {
         // according to spec, a charge point should not send a BootNotification after a reconnect
         // still we send StatusNotification.req for all connectors after a reconnect
         this->status->trigger_status_notifications();
+        // The OCSP request, client certificate, and V2G certificate expiration check timers are stopped
+        // while disconnected (see register_disconnected_callback); since no BootNotification is sent on a
+        // reconnect, they must be explicitly re-armed here or they would remain stopped indefinitely.
+        this->init_certificate_expiration_check_timers();
         break;
     }
     case ChargePointConnectionState::Pending: {
@@ -1734,19 +1784,10 @@ void ChargePointImpl::handleBootNotificationResponse(ocpp::CallResult<BootNotifi
         // send initial StatusNotification.req
         this->status->trigger_status_notifications();
 
-        if (this->is_iso15118_certificate_management_enabled()) {
-            this->ocsp_request_timer->timeout(INITIAL_CERTIFICATE_REQUESTS_DELAY);
-            this->v2g_certificate_timer->timeout(INITIAL_CERTIFICATE_REQUESTS_DELAY);
-        }
-
-        if (this->configuration.getSecurityProfile() == 3) {
-            this->client_certificate_timer->stop();
-            this->client_certificate_timer->timeout(INITIAL_CERTIFICATE_REQUESTS_DELAY);
-        }
-
-        if (this->is_iso15118_certificate_management_enabled()) {
-            this->ocsp_request_timer->timeout(INITIAL_CERTIFICATE_REQUESTS_DELAY);
-        }
+        // Arms the OCSP request, client certificate, and V2G certificate expiration check timers for the
+        // first time. Since no timer has a due time recorded yet, this schedules them at
+        // INITIAL_CERTIFICATE_REQUESTS_DELAY from now (see init_certificate_expiration_check_timers).
+        this->init_certificate_expiration_check_timers();
 
     } else if (call_result.msg.status == RegistrationStatus::Pending) {
         this->connection_state = ChargePointConnectionState::Pending;
@@ -1990,8 +2031,11 @@ ChargePointImpl::set_configuration_key_internal(CiString<50> key, CiString<500> 
                     if (ocpp::conversions::string_to_bool(value)) {
                         ocsp_request_timer->stop();
                         ocsp_request_timer->timeout(INITIAL_CERTIFICATE_REQUESTS_DELAY);
+                        this->ocsp_request_due_at = date::utc_clock::now() + INITIAL_CERTIFICATE_REQUESTS_DELAY;
                         v2g_certificate_timer->stop();
                         v2g_certificate_timer->timeout(INITIAL_CERTIFICATE_REQUESTS_DELAY);
+                        this->v2g_certificate_check_due_at =
+                            date::utc_clock::now() + INITIAL_CERTIFICATE_REQUESTS_DELAY;
                     } else {
                         ocsp_request_timer->stop();
                         v2g_certificate_timer->stop();
@@ -2002,6 +2046,7 @@ ChargePointImpl::set_configuration_key_internal(CiString<50> key, CiString<500> 
                         // itself with the new interval value after the update completes.
                         ocsp_request_timer->stop();
                         ocsp_request_timer->timeout(std::chrono::seconds(0));
+                        this->ocsp_request_due_at = date::utc_clock::now();
                     }
                 } else if (key == "NextTimeOffsetTransitionDateTime") {
                     const auto next_time_offset_transition_date_time =
@@ -4240,6 +4285,7 @@ void ChargePointImpl::handle_data_transfer_pnc_certificate_signed(Call<DataTrans
             // update the OCSP cache in case a new certificate was installed
             this->ocsp_request_timer->stop();
             this->ocsp_request_timer->timeout(std::chrono::seconds(0));
+            this->ocsp_request_due_at = date::utc_clock::now();
         }
     } catch (const json::exception& e) {
         EVLOG_warning << "Could not parse data of DataTransfer message CertificateSigned.req: " << e.what();

@@ -67,6 +67,7 @@ key(Internal, ChargePointId) \
 key(Internal, ChargePointModel) \
 key(Internal, ChargePointSerialNumber) \
 key(Internal, ChargePointVendor) \
+key(Internal, ClientCertificateExpireCheckIntervalSeconds) \
 key(Internal, CompositeScheduleDefaultLimitAmps) \
 key(Internal, CompositeScheduleDefaultLimitWatts) \
 key(Internal, CompositeScheduleDefaultNumberPhases) \
@@ -110,6 +111,7 @@ key(Internal, TLSKeylogFile) \
 key(Internal, UseSslDefaultVerifyPaths) \
 key(Internal, UseTPM) \
 key(Internal, UseTPMSeccLeafCertificate) \
+key(Internal, V2GCertificateExpireCheckIntervalSeconds) \
 key(Internal, VerifyCsmsAllowWildcards) \
 key(Internal, VerifyCsmsCommonName) \
 key(Internal, WaitForStopTransactionsOnResetTimeout) \

@@ -1144,6 +1144,14 @@ std::int32_t ChargePointConfigurationDeviceModel::getMaxCompositeScheduleDuratio
     return get_value<std::int32_t>(*storage, keys::valid_keys::MaxCompositeScheduleDuration);
 }
 
+std::int32_t ChargePointConfigurationDeviceModel::getClientCertificateExpireCheckIntervalSeconds() {
+    return get_value<std::int32_t>(*storage, keys::valid_keys::ClientCertificateExpireCheckIntervalSeconds);
+}
+
+std::int32_t ChargePointConfigurationDeviceModel::getV2GCertificateExpireCheckIntervalSeconds() {
+    return get_value<std::int32_t>(*storage, keys::valid_keys::V2GCertificateExpireCheckIntervalSeconds);
+}
+
 std::int32_t ChargePointConfigurationDeviceModel::getOcspRequestInterval() {
     return get_value<std::int32_t>(*storage, keys::valid_keys::OcspRequestInterval);
 }
@@ -1355,6 +1363,14 @@ KeyValue ChargePointConfigurationDeviceModel::getLogRotationMaximumFileSizeKeyVa
 
 KeyValue ChargePointConfigurationDeviceModel::getMaxCompositeScheduleDurationKeyValue() {
     return get_key_value(*storage, keys::valid_keys::MaxCompositeScheduleDuration);
+}
+
+KeyValue ChargePointConfigurationDeviceModel::getClientCertificateExpireCheckIntervalSecondsKeyValue() {
+    return get_key_value(*storage, keys::valid_keys::ClientCertificateExpireCheckIntervalSeconds);
+}
+
+KeyValue ChargePointConfigurationDeviceModel::getV2GCertificateExpireCheckIntervalSecondsKeyValue() {
+    return get_key_value(*storage, keys::valid_keys::V2GCertificateExpireCheckIntervalSeconds);
 }
 
 KeyValue ChargePointConfigurationDeviceModel::getMaxMessageSizeKeyValue() {
@@ -2916,6 +2932,7 @@ std::optional<ConfigurationStatus> ChargePointConfigurationDeviceModel::set(cons
         case keys::valid_keys::LogMessages:
         case keys::valid_keys::LogMessagesFormat:
         case keys::valid_keys::LogMessagesRaw:
+        case keys::valid_keys::ClientCertificateExpireCheckIntervalSeconds:
         case keys::valid_keys::MaxCompositeScheduleDuration:
         case keys::valid_keys::MaxMessageSize:
         case keys::valid_keys::MessageQueueSizeThreshold:
@@ -2927,6 +2944,7 @@ std::optional<ConfigurationStatus> ChargePointConfigurationDeviceModel::set(cons
         case keys::valid_keys::SupportedCiphers13:
         case keys::valid_keys::SupportedMeasurands:
         case keys::valid_keys::UseSslDefaultVerifyPaths:
+        case keys::valid_keys::V2GCertificateExpireCheckIntervalSeconds:
         case keys::valid_keys::VerifyCsmsCommonName:
         case keys::valid_keys::WebsocketPingPayload:
         case keys::valid_keys::WebsocketPongTimeout:

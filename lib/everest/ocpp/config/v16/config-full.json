@@ -49,6 +49,8 @@
         "VerifyCsmsCommonName": true,
         "VerifyCsmsAllowWildcards": true,
         "OcspRequestInterval": 604800,
+        "ClientCertificateExpireCheckIntervalSeconds": 43200,
+        "V2GCertificateExpireCheckIntervalSeconds": 43200,
         "SeccLeafSubjectCommonName": "DEPNX100001",
         "SeccLeafSubjectCountry": "DE",
         "SeccLeafSubjectOrganization": "Pionix",

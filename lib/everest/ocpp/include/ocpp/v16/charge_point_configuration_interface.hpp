@@ -75,11 +75,13 @@ public:
 
     virtual int getMaxMessageSize() = 0;
 
+    virtual std::int32_t getClientCertificateExpireCheckIntervalSeconds() = 0;
     virtual std::int32_t getMaxCompositeScheduleDuration() = 0;
     virtual std::int32_t getOcspRequestInterval() = 0;
     virtual std::int32_t getRetryBackoffRandomRange() = 0;
     virtual std::int32_t getRetryBackoffRepeatTimes() = 0;
     virtual std::int32_t getRetryBackoffWaitMinimum() = 0;
+    virtual std::int32_t getV2GCertificateExpireCheckIntervalSeconds() = 0;
     virtual std::int32_t getWaitForStopTransactionsOnResetTimeout() = 0;
     virtual std::int32_t getWebsocketPongTimeout() = 0;
 
@@ -122,6 +124,7 @@ public:
     virtual KeyValue getLogRotationKeyValue() = 0;
     virtual KeyValue getLogRotationMaximumFileCountKeyValue() = 0;
     virtual KeyValue getLogRotationMaximumFileSizeKeyValue() = 0;
+    virtual KeyValue getClientCertificateExpireCheckIntervalSecondsKeyValue() = 0;
     virtual KeyValue getMaxCompositeScheduleDurationKeyValue() = 0;
     virtual KeyValue getMaxMessageSizeKeyValue() = 0;
     virtual KeyValue getOcspRequestIntervalKeyValue() = 0;
@@ -137,6 +140,7 @@ public:
     virtual KeyValue getUseSslDefaultVerifyPathsKeyValue() = 0;
     virtual KeyValue getUseTPMKeyValue() = 0;
     virtual KeyValue getUseTPMSeccLeafCertificateKeyValue() = 0;
+    virtual KeyValue getV2GCertificateExpireCheckIntervalSecondsKeyValue() = 0;
     virtual KeyValue getVerifyCsmsAllowWildcardsKeyValue() = 0;
     virtual KeyValue getVerifyCsmsCommonNameKeyValue() = 0;
     virtual KeyValue getWaitForStopTransactionsOnResetTimeoutKeyValue() = 0;
