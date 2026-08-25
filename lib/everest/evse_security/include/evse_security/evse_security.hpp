@@ -29,6 +29,8 @@ struct DirectoryPaths {
     fs::path csms_leaf_key_directory;  /**< csms leaf key shall be located in this directory */
     fs::path secc_leaf_cert_directory; /**< secc leaf certificate for ISO15118 shall be located in this directory */
     fs::path secc_leaf_key_directory;  /**< secc leaf key shall be located in this directory */
+    fs::path remote_leaf_cert_directory; /**< remote leaf certificate for remote connection shall be located in this directory */
+    fs::path remote_leaf_key_directory;  /**< remote leaf key shall be located in this directory */
 };
 struct FilePaths {
     // bundle paths
@@ -36,6 +38,7 @@ struct FilePaths {
     fs::path mf_ca_bundle;
     fs::path mo_ca_bundle;
     fs::path v2g_ca_bundle;
+    fs::path remote_ca_bundle;
 
     DirectoryPaths directories;
     LinkPaths links;

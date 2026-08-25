@@ -14,6 +14,7 @@ types:
       - MO
       - CSMS
       - MF
+      - REMOTE
   LeafCertificateType:
     description: Enum specifies the type of a leaf certificate
     type: string
@@ -22,6 +23,7 @@ types:
       - V2G
       - MF
       - MO
+      - REMOTE
   CertificateType:
     description: Enum specifies certificate type of leaf and CA certificates
     type: string
@@ -31,6 +33,7 @@ types:
       - CSMSRootCertificate
       - V2GCertificateChain
       - MFRootCertificate
+      - REMOTERootCertificate
   HashAlgorithm:
     description: Enum specifies a hash algorithm
     type: string

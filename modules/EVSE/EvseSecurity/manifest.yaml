@@ -18,6 +18,10 @@ config:
     description: Path to v2g_ca_bundle file. If relative will be prefixed with everest prefix + etc/everest/certs. Otherwise absolute file path is used.
     type: string
     default: ca/v2g/V2G_ROOT_CA.pem
+  remote_ca_bundle:
+    description: Path to remote_ca_bundle file. If relative will be prefixed with everest prefix + etc/everest/certs. Otherwise absolute file path is used.
+    type: string
+    default: ca/remote/REMOTE_ROOT_CA.pem
   csms_leaf_cert_directory:
     description: Directory where CSMS leaf certificates are stored. If relative will be prefixed with everest prefix + etc/everest/certs. Otherwise absolute file path is used.
     type: string
@@ -34,6 +38,14 @@ config:
     description: Directory where SECC private keys are stored. If relative will be prefixed with everest prefix + etc/everest/certs. Otherwise absolute file path is used.
     type: string
     default: client/cso
+  remote_leaf_cert_directory:
+    description: Directory where REMOTE leaf certificates are stored. If relative will be prefixed with everest prefix + etc/everest/certs. Otherwise absolute file path is used.
+    type: string
+    default: client/remote
+  remote_leaf_key_directory:
+    description: Directory where REMOTE private keys are stored. If relative will be prefixed with everest prefix + etc/everest/certs. Otherwise absolute file path is used.
+    type: string
+    default: client/remote
   private_key_password:
     description: Password for encrypted private keys.
     type: string

@@ -19,10 +19,13 @@ void evse_securityImpl::init() {
                                            certs_path / this->mod->config.mf_ca_bundle,
                                            certs_path / this->mod->config.mo_ca_bundle,
                                            certs_path / this->mod->config.v2g_ca_bundle,
+                                           certs_path / this->mod->config.remote_ca_bundle,
                                            certs_path / this->mod->config.csms_leaf_cert_directory,
                                            certs_path / this->mod->config.csms_leaf_key_directory,
                                            certs_path / this->mod->config.secc_leaf_cert_directory,
-                                           certs_path / this->mod->config.secc_leaf_key_directory};
+                                           certs_path / this->mod->config.secc_leaf_key_directory,
+                                           certs_path / this->mod->config.remote_leaf_cert_directory,
+                                           certs_path / this->mod->config.remote_leaf_key_directory};
 
     std::optional<std::string> private_key_password = std::nullopt;
     if (!this->mod->config.private_key_password.empty()) {

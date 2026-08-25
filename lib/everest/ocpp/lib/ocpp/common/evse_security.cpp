@@ -21,6 +21,10 @@ ocpp::v2::GetCertificateIdUseEnum to_ocpp_v2(ocpp::CertificateType other) {
         return ocpp::v2::GetCertificateIdUseEnum::ManufacturerRootCertificate;
     case ocpp::CertificateType::OEMRootCertificate:
         return ocpp::v2::GetCertificateIdUseEnum::OEMRootCertificate;
+    case ocpp::CertificateType::REMOTERootCertificate:
+        // REMOTE certificates are an OCPP 1.6 only concept and have no OCPP 2.0.1 representation
+        throw EnumConversionException("Could not convert CertificateType::REMOTERootCertificate to "
+                                      "GetCertificateIdUseEnum");
     }
 
     throw EnumConversionException("Could not convert CertificateType to GetCertificateIdUseEnum");
@@ -38,6 +42,10 @@ ocpp::v2::InstallCertificateUseEnum to_ocpp_v2(ocpp::CaCertificateType other) {
         return ocpp::v2::InstallCertificateUseEnum::ManufacturerRootCertificate;
     case ocpp::CaCertificateType::OEM:
         return ocpp::v2::InstallCertificateUseEnum::OEMRootCertificate;
+    case ocpp::CaCertificateType::REMOTE:
+        // REMOTE certificates are an OCPP 1.6 only concept and have no OCPP 2.0.1 representation
+        throw EnumConversionException(
+            "Could not convert CaCertificateType::REMOTE to InstallCertificateUseEnum");
     }
 
     throw EnumConversionException("Could not convert CaCertificateType to InstallCertificateUseEnum");

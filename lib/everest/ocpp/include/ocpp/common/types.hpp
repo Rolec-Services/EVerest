@@ -451,6 +451,7 @@ enum class CaCertificateType {
     MO,
     CSMS,
     MF,
+    REMOTE,
     OEM
 };
 
@@ -586,6 +587,7 @@ enum class CertificateType {
     CSMSRootCertificate,
     V2GCertificateChain,
     MFRootCertificate,
+    REMOTERootCertificate,
     OEMRootCertificate,
 };
 
@@ -644,7 +646,8 @@ enum class CertificateSigningUseEnum {
     ChargingStationCertificate,
     V2GCertificate,
     ManufacturerCertificate,
-    V2G20Certificate
+    V2G20Certificate,
+    RemoteCertificate
 };
 
 namespace conversions {
@@ -713,7 +716,8 @@ enum class LeafCertificateType {
     CSMS, // Charging Station Management System
     V2G,  // Vehicle to grid
     MF,   // Manufacturer
-    MO    // Mobility Operator
+    MO,    // Mobility Operator
+    REMOTE    // Remote Operator
 };
 
 namespace conversions {

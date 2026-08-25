@@ -241,6 +241,8 @@ ocpp::CaCertificateType to_ocpp(types::evse_security::CaCertificateType other) {
         return ocpp::CaCertificateType::CSMS;
     case types::evse_security::CaCertificateType::MF:
         return ocpp::CaCertificateType::MF;
+    case types::evse_security::CaCertificateType::REMOTE:
+        return ocpp::CaCertificateType::REMOTE;
     }
     throw std::out_of_range("Could not convert types::evse_security::CaCertificateType to ocpp::CaCertificateType");
 }
@@ -255,6 +257,8 @@ ocpp::LeafCertificateType to_ocpp(types::evse_security::LeafCertificateType othe
         return ocpp::LeafCertificateType::MF;
     case types::evse_security::LeafCertificateType::MO:
         return ocpp::LeafCertificateType::MO;
+    case types::evse_security::LeafCertificateType::REMOTE:
+        return ocpp::LeafCertificateType::REMOTE;
     }
     throw std::out_of_range(
         "Could not convert types::evse_security::LeafCertificateType to ocpp::CertificateSigningUseEnum");
@@ -272,6 +276,8 @@ ocpp::CertificateType to_ocpp(types::evse_security::CertificateType other) {
         return ocpp::CertificateType::V2GCertificateChain;
     case types::evse_security::CertificateType::MFRootCertificate:
         return ocpp::CertificateType::MFRootCertificate;
+    case types::evse_security::CertificateType::REMOTERootCertificate:
+        return ocpp::CertificateType::REMOTERootCertificate;
     }
     throw std::out_of_range("Could not convert types::evse_security::CertificateType to ocpp::CertificateType");
 }
@@ -454,6 +460,8 @@ types::evse_security::CaCertificateType from_ocpp(ocpp::CaCertificateType other)
         return types::evse_security::CaCertificateType::CSMS;
     case ocpp::CaCertificateType::MF:
         return types::evse_security::CaCertificateType::MF;
+    case ocpp::CaCertificateType::REMOTE:
+        return types::evse_security::CaCertificateType::REMOTE;
     case ocpp::CaCertificateType::OEM:
         throw std::out_of_range("Could not convert ocpp::CaCertificateType::OEM to evse_security::CaCertificateType");
     }
@@ -471,6 +479,8 @@ types::evse_security::LeafCertificateType from_ocpp(ocpp::CertificateSigningUseE
     case ocpp::CertificateSigningUseEnum::V2G20Certificate:
         throw std::out_of_range("Could not convert ocpp::CertificateSigningUseEnum::V2G20Certificate to "
                                 "evse_security::LeafCertificateType");
+    case ocpp::CertificateSigningUseEnum::RemoteCertificate:
+        return types::evse_security::LeafCertificateType::REMOTE;
     }
     throw std::out_of_range(
         "Could not convert ocpp::CertificateSigningUseEnum to types::evse_security::LeafCertificateType");
@@ -486,6 +496,8 @@ types::evse_security::LeafCertificateType from_ocpp(ocpp::LeafCertificateType ot
         return types::evse_security::LeafCertificateType::MF;
     case ocpp::LeafCertificateType::MO:
         return types::evse_security::LeafCertificateType::MO;
+    case ocpp::LeafCertificateType::REMOTE:
+        return types::evse_security::LeafCertificateType::REMOTE;
     }
     throw std::out_of_range(
         "Could not convert ocpp::CertificateSigningUseEnum to types::evse_security::LeafCertificateType");
@@ -503,6 +515,8 @@ types::evse_security::CertificateType from_ocpp(ocpp::CertificateType other) {
         return types::evse_security::CertificateType::V2GCertificateChain;
     case ocpp::CertificateType::MFRootCertificate:
         return types::evse_security::CertificateType::MFRootCertificate;
+    case ocpp::CertificateType::REMOTERootCertificate:
+        return types::evse_security::CertificateType::REMOTERootCertificate;
     case ocpp::CertificateType::OEMRootCertificate:
         throw std::out_of_range("Could not convert ocpp::CertificateType::OEMRootCertificate to "
                                 "evse_security::CertificateType");

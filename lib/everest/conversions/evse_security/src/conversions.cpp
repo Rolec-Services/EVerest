@@ -29,6 +29,8 @@ evse_security::CaCertificateType from_everest(types::evse_security::CaCertificat
         return evse_security::CaCertificateType::CSMS;
     case types::evse_security::CaCertificateType::MF:
         return evse_security::CaCertificateType::MF;
+    case types::evse_security::CaCertificateType::REMOTE:
+        return evse_security::CaCertificateType::REMOTE;
     }
     throw std::out_of_range(
         "Could not convert types::evse_security::CaCertificateType to evse_security::CaCertificateType");
@@ -44,6 +46,8 @@ evse_security::LeafCertificateType from_everest(types::evse_security::LeafCertif
         return evse_security::LeafCertificateType::MF;
     case types::evse_security::LeafCertificateType::MO:
         return evse_security::LeafCertificateType::MO;
+    case types::evse_security::LeafCertificateType::REMOTE:
+        return evse_security::LeafCertificateType::REMOTE;
     }
     throw std::out_of_range(
         "Could not convert types::evse_security::LeafCertificateType to evse_security::LeafCertificateType");
@@ -61,6 +65,8 @@ evse_security::CertificateType from_everest(types::evse_security::CertificateTyp
         return evse_security::CertificateType::V2GCertificateChain;
     case types::evse_security::CertificateType::MFRootCertificate:
         return evse_security::CertificateType::MFRootCertificate;
+    case types::evse_security::CertificateType::REMOTERootCertificate:
+        return evse_security::CertificateType::REMOTERootCertificate;
     }
     throw std::out_of_range(
         "Could not convert types::evse_security::CertificateType to evse_security::CertificateType");
@@ -224,6 +230,8 @@ types::evse_security::CaCertificateType to_everest(evse_security::CaCertificateT
         return types::evse_security::CaCertificateType::CSMS;
     case evse_security::CaCertificateType::MF:
         return types::evse_security::CaCertificateType::MF;
+    case evse_security::CaCertificateType::REMOTE:
+        return types::evse_security::CaCertificateType::REMOTE;
     }
     throw std::out_of_range(
         "Could not convert evse_security::CaCertificateType to types::evse_security::CaCertificateType");
@@ -239,6 +247,8 @@ types::evse_security::LeafCertificateType to_everest(evse_security::LeafCertific
         return types::evse_security::LeafCertificateType::MF;
     case evse_security::LeafCertificateType::MO:
         return types::evse_security::LeafCertificateType::MO;
+    case evse_security::LeafCertificateType::REMOTE:
+        return types::evse_security::LeafCertificateType::REMOTE;
     }
     throw std::out_of_range(
         "Could not convert evse_security::LeafCertificateType to types::evse_security::LeafCertificateType");
@@ -256,6 +266,8 @@ types::evse_security::CertificateType to_everest(evse_security::CertificateType 
         return types::evse_security::CertificateType::V2GCertificateChain;
     case evse_security::CertificateType::MFRootCertificate:
         return types::evse_security::CertificateType::MFRootCertificate;
+    case evse_security::CertificateType::REMOTERootCertificate:
+        return types::evse_security::CertificateType::REMOTERootCertificate;
     }
     throw std::out_of_range(
         "Could not convert evse_security::CertificateType to types::evse_security::CertificateType");

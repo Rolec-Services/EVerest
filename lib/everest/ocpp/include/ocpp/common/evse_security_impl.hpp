@@ -17,10 +17,13 @@ struct SecurityConfiguration {
     fs::path mf_ca_bundle;
     fs::path mo_ca_bundle;
     fs::path v2g_ca_bundle;
+    fs::path remote_ca_bundle;
     fs::path csms_leaf_cert_directory;
     fs::path csms_leaf_key_directory;
     fs::path secc_leaf_cert_directory;
     fs::path secc_leaf_key_directory;
+    fs::path remote_leaf_cert_directory;
+    fs::path remote_leaf_key_directory;
     fs::path secc_leaf_cert_link;
     fs::path secc_leaf_key_link;
     fs::path cpo_cert_chain_link;

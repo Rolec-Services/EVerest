@@ -28,6 +28,7 @@ enum class CaCertificateType {
     MO,
     CSMS,
     MF,
+    REMOTE,
 };
 
 enum class LeafCertificateType {
@@ -35,6 +36,7 @@ enum class LeafCertificateType {
     V2G,
     MF,
     MO,
+    REMOTE,
 };
 
 enum class CertificateType {
@@ -43,6 +45,7 @@ enum class CertificateType {
     CSMSRootCertificate,
     V2GCertificateChain,
     MFRootCertificate,
+    REMOTERootCertificate,
 };
 
 enum class HashAlgorithm {

@@ -24,10 +24,13 @@ struct Conf {
     std::string mf_ca_bundle;
     std::string mo_ca_bundle;
     std::string v2g_ca_bundle;
+    std::string remote_ca_bundle;
     std::string csms_leaf_cert_directory;
     std::string csms_leaf_key_directory;
     std::string secc_leaf_cert_directory;
     std::string secc_leaf_key_directory;
+    std::string remote_leaf_cert_directory;
+    std::string remote_leaf_key_directory;
     std::string private_key_password;
     std::string pkcs11_module_path;
     std::string pkcs11_token;

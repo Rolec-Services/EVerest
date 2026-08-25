@@ -10,11 +10,14 @@ EvseSecurityImpl::EvseSecurityImpl(const SecurityConfiguration& security_configu
     file_paths.mf_ca_bundle = security_configuration.mf_ca_bundle;
     file_paths.mo_ca_bundle = security_configuration.mo_ca_bundle;
     file_paths.v2g_ca_bundle = security_configuration.v2g_ca_bundle;
+    file_paths.remote_ca_bundle = security_configuration.remote_ca_bundle;
 
     file_paths.directories.csms_leaf_cert_directory = security_configuration.csms_leaf_cert_directory;
     file_paths.directories.csms_leaf_key_directory = security_configuration.csms_leaf_key_directory;
     file_paths.directories.secc_leaf_cert_directory = security_configuration.secc_leaf_cert_directory;
     file_paths.directories.secc_leaf_key_directory = security_configuration.secc_leaf_key_directory;
+    file_paths.directories.remote_leaf_cert_directory = security_configuration.remote_leaf_cert_directory;
+    file_paths.directories.remote_leaf_key_directory = security_configuration.remote_leaf_key_directory;
 
     file_paths.links.secc_leaf_cert_link = security_configuration.secc_leaf_cert_link;
     file_paths.links.secc_leaf_key_link = security_configuration.secc_leaf_key_link;
@@ -191,6 +194,8 @@ CaCertificateType to_ocpp(evse_security::CaCertificateType other) {
         return CaCertificateType::CSMS;
     case evse_security::CaCertificateType::MF:
         return CaCertificateType::MF;
+    case evse_security::CaCertificateType::REMOTE:
+        return CaCertificateType::REMOTE;
     }
 
     throw EnumConversionException("Could not convert evse_security::CaCertificateType to CaCertificateType");
@@ -208,6 +213,8 @@ CertificateType to_ocpp(evse_security::CertificateType other) {
         return CertificateType::V2GCertificateChain;
     case evse_security::CertificateType::MFRootCertificate:
         return CertificateType::MFRootCertificate;
+    case evse_security::CertificateType::REMOTERootCertificate:
+        return CertificateType::REMOTERootCertificate;
     }
     throw EnumConversionException("Could not convert evse_security::CertificateType to CertificateType");
 }
@@ -372,6 +379,8 @@ evse_security::CaCertificateType from_ocpp(CaCertificateType other) {
         return evse_security::CaCertificateType::CSMS;
     case CaCertificateType::MF:
         return evse_security::CaCertificateType::MF;
+    case CaCertificateType::REMOTE:
+        return evse_security::CaCertificateType::REMOTE;
     case CaCertificateType::OEM:
         // FIXME: Add OEM to evse_security::CaCertificateType
         throw EnumConversionException("Could not convert CaCertificateType::OEM to evse_security::CaCertificateType");
@@ -389,6 +398,8 @@ evse_security::LeafCertificateType from_ocpp(LeafCertificateType other) {
         return evse_security::LeafCertificateType::CSMS;
     case LeafCertificateType::MF:
         return evse_security::LeafCertificateType::MF;
+    case LeafCertificateType::REMOTE:
+        return evse_security::LeafCertificateType::REMOTE;
     }
     throw EnumConversionException("Could not convert evse_security::CaCertificateType to CaCertificateType");
 }
@@ -405,6 +416,8 @@ evse_security::LeafCertificateType from_ocpp(CertificateSigningUseEnum other) {
         // FIXME: Add V2G20Certificate to evse_security::LeafCertificateType
         throw EnumConversionException(
             "Could not convert CertificateSigningUseEnum::V2G20Certificate to evse_security::LeafCertificateType");
+    case CertificateSigningUseEnum::RemoteCertificate:
+        return evse_security::LeafCertificateType::REMOTE;
     }
     throw EnumConversionException("Could not convert CertificateSigningUseEnum to evse_security::LeafCertificateType");
 }
@@ -421,6 +434,8 @@ evse_security::CertificateType from_ocpp(CertificateType other) {
         return evse_security::CertificateType::V2GCertificateChain;
     case CertificateType::MFRootCertificate:
         return evse_security::CertificateType::MFRootCertificate;
+    case CertificateType::REMOTERootCertificate:
+        return evse_security::CertificateType::REMOTERootCertificate;
     case CertificateType::OEMRootCertificate:
         throw EnumConversionException(
             "Could not convert CertificateType::OEMRootCertificate to evse_security::CertificateType");

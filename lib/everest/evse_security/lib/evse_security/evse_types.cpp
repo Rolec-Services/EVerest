@@ -28,6 +28,8 @@ std::string ca_certificate_type_to_string(CaCertificateType e) {
         return "CSMS";
     case CaCertificateType::MF:
         return "MF";
+    case CaCertificateType::REMOTE:
+        return "REMOTE";
     default:
         throw std::out_of_range("Could not convert CaCertificateType to string");
     }
@@ -43,6 +45,8 @@ std::string leaf_certificate_type_to_string(LeafCertificateType e) {
         return "MF";
     case LeafCertificateType::MO:
         return "MO";
+    case LeafCertificateType::REMOTE:
+        return "REMOTE";
     default:
         throw std::out_of_range("Could not convert LeafCertificateType to string");
     }
@@ -58,6 +62,8 @@ std::string leaf_certificate_type_to_filename(LeafCertificateType e) {
         return "MF_LEAF_";
     case LeafCertificateType::MO:
         return "MO_LEAF_";
+    case LeafCertificateType::REMOTE:
+        return "REMOTE_LEAF_";
     default:
         throw std::out_of_range("Could not convert LeafCertificateType to string");
     }
@@ -75,6 +81,8 @@ std::string certificate_type_to_string(CertificateType e) {
         return "V2GCertificateChain";
     case CertificateType::MFRootCertificate:
         return "MFRootCertificate";
+    case CertificateType::REMOTERootCertificate:
+        return "REMOTERootCertificate";
     default:
         throw std::out_of_range("Could not convert CertificateType to string");
     }

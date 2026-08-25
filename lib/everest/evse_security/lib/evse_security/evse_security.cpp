@@ -79,6 +79,9 @@ std::vector<CaCertificateType> get_ca_certificate_types(const std::vector<Certif
         if (certificate_type == CertificateType::MFRootCertificate) {
             ca_certificate_types.push_back(CaCertificateType::MF);
         }
+        if (certificate_type == CertificateType::REMOTERootCertificate) {
+            ca_certificate_types.push_back(CaCertificateType::REMOTE);
+        }
     }
     return ca_certificate_types;
 }
@@ -93,6 +96,8 @@ CertificateType get_certificate_type(const CaCertificateType ca_certificate_type
         return CertificateType::CSMSRootCertificate;
     case CaCertificateType::MF:
         return CertificateType::MFRootCertificate;
+    case CaCertificateType::REMOTE:
+        return CertificateType::REMOTERootCertificate;
     default:
         throw std::runtime_error("Could not convert CaCertificateType to CertificateType");
     }
@@ -339,6 +344,7 @@ EvseSecurity::EvseSecurity(const FilePaths& file_paths, const std::optional<std:
     this->ca_bundle_path_map[CaCertificateType::MF] = file_paths.mf_ca_bundle;
     this->ca_bundle_path_map[CaCertificateType::MO] = file_paths.mo_ca_bundle;
     this->ca_bundle_path_map[CaCertificateType::V2G] = file_paths.v2g_ca_bundle;
+    this->ca_bundle_path_map[CaCertificateType::REMOTE] = file_paths.remote_ca_bundle;
 
     for (const auto& pair : this->ca_bundle_path_map) {
         if (!fs::exists(pair.second)) {
@@ -497,7 +503,7 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
     }
 
     // Collect all the leaf chains
-    for (const auto& leaf_certificate_type : {LeafCertificateType::V2G, LeafCertificateType::CSMS}) {
+    for (const auto& leaf_certificate_type : {LeafCertificateType::V2G, LeafCertificateType::CSMS, LeafCertificateType::REMOTE}) {
         fs::path leaf_certificate_path;
         fs::path leaf_certificate_key;
 
@@ -507,6 +513,9 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
         } else if (leaf_certificate_type == LeafCertificateType::V2G) {
             leaf_certificate_path = this->directories.secc_leaf_cert_directory;
             leaf_certificate_key = this->directories.secc_leaf_key_directory;
+        } else if (leaf_certificate_type == LeafCertificateType::REMOTE) {
+            leaf_certificate_path = this->directories.remote_leaf_cert_directory;
+            leaf_certificate_key = this->directories.remote_leaf_key_directory;
         }
 
         if (leaf_certificate_path.empty() || leaf_certificate_key.empty()) {
@@ -527,6 +536,8 @@ DeleteResult EvseSecurity::delete_certificate(const CertificateHashData& certifi
             root_load = CaCertificateType::V2G;
         } else if (csms) {
             root_load = CaCertificateType::CSMS;
+        } else if (leaf_certificate_type == LeafCertificateType::REMOTE) {
+            root_load = CaCertificateType::REMOTE;
         } else {
             throw std::runtime_error("Leaf root type load invalid, should never happen!");
         }
@@ -683,8 +694,11 @@ InstallCertificateResult EvseSecurity::update_leaf_certificate(const std::string
     } else if (certificate_type == LeafCertificateType::V2G) {
         cert_path = this->directories.secc_leaf_cert_directory;
         key_path = this->directories.secc_leaf_key_directory;
+    } else if (certificate_type == LeafCertificateType::REMOTE) {
+        cert_path = this->directories.remote_leaf_cert_directory;
+        key_path = this->directories.remote_leaf_key_directory;
     } else {
-        EVLOG_error << "Attempt to update leaf certificate for non CSMS/V2G certificate!";
+        EVLOG_error << "Attempt to update leaf certificate for non CSMS/V2G/REMOTE certificate!";
         return InstallCertificateResult::WriteError;
     }
 
@@ -1394,6 +1408,8 @@ void EvseSecurity::certificate_signing_request_failed(const std::string& csr, Le
         key_dir = this->directories.csms_leaf_key_directory;
     } else if (certificate_type == LeafCertificateType::V2G) {
         key_dir = this->directories.secc_leaf_key_directory;
+    } else if (certificate_type == LeafCertificateType::REMOTE) {
+        key_dir = this->directories.remote_leaf_key_directory;
     } else {
         EVLOG_warning << "CSR failed for unsupported certificate type";
         return;
@@ -1473,8 +1489,10 @@ GetCertificateSignRequestResult EvseSecurity::generate_certificate_signing_reque
         key_path = this->directories.csms_leaf_key_directory / file_name;
     } else if (certificate_type == LeafCertificateType::V2G) {
         key_path = this->directories.secc_leaf_key_directory / file_name;
+    } else if (certificate_type == LeafCertificateType::REMOTE) {
+        key_path = this->directories.remote_leaf_key_directory / file_name;
     } else {
-        EVLOG_error << "Generate CSR for non CSMS/V2G leafs!";
+        EVLOG_error << "Generate CSR for non CSMS/V2G/REMOTE leafs!";
 
         GetCertificateSignRequestResult result{};
         result.status = GetCertificateSignRequestStatus::InvalidRequestedType;
@@ -1548,6 +1566,8 @@ GetCertificateSignRequestResult EvseSecurity::generate_certificate_signing_reque
                     fs::path cert_dir;
                     if (certificate_type == LeafCertificateType::CSMS) {
                         cert_dir = this->directories.csms_leaf_cert_directory;
+                    } else if (certificate_type == LeafCertificateType::REMOTE) {
+                        cert_dir = this->directories.remote_leaf_cert_directory;
                     } else {
                         cert_dir = this->directories.secc_leaf_cert_directory;
                     }
@@ -1680,8 +1700,12 @@ EvseSecurity::get_full_leaf_certificate_info_internal(const CertificateQueryPara
         key_dir = this->directories.secc_leaf_key_directory;
         cert_dir = this->directories.secc_leaf_cert_directory;
         root_type = CaCertificateType::V2G;
+    } else if (certificate_type == LeafCertificateType::REMOTE) {
+        key_dir = this->directories.remote_leaf_key_directory;
+        cert_dir = this->directories.remote_leaf_cert_directory;
+        root_type = CaCertificateType::REMOTE;
     } else {
-        EVLOG_warning << "Rejected attempt to retrieve non CSMS/V2G key pair";
+        EVLOG_warning << "Rejected attempt to retrieve non CSMS/V2G/REMOTE key pair";
         result.status = GetCertificateInfoStatus::Rejected;
         return result;
     }
@@ -2280,6 +2304,9 @@ EvseSecurity::verify_certificate_internal(const std::string& certificate_chain,
             break;
         case LeafCertificateType::MO:
             ca_certificate_types.insert(CaCertificateType::MO);
+            break;
+        case LeafCertificateType::REMOTE:
+            ca_certificate_types.insert(CaCertificateType::REMOTE);
             break;
         default:
             EVLOG_warning << "Unknown LeafCertificateType provided. Skipping.";
