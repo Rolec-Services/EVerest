@@ -28,6 +28,7 @@ namespace v16 {
 
 const auto ISO15118_PNC_VENDOR_ID = "org.openchargealliance.iso15118pnc";
 const auto CALIFORNIA_PRICING_VENDOR_ID = "org.openchargealliance.costmsg";
+const auto ROLEC_VENDOR_ID = "Rolec";
 const auto INITIAL_CERTIFICATE_REQUESTS_DELAY = std::chrono::seconds(60);
 const auto WEBSOCKET_INIT_DELAY = std::chrono::seconds(2);
 const auto DEFAULT_MESSAGE_QUEUE_SIZE_THRESHOLD = 1000;
@@ -223,6 +224,16 @@ ChargePointImpl::ChargePointImpl(ChargePointConfigurationInterface& cfg, const f
             this->ocsp_request_timer->interval(ocsp_request_interval_duration);
         });
     }
+
+    // Rolec handlers
+    this->data_transfer_rolec_callbacks[conversions::messagetype_to_string(MessageType::TriggerMessage)] =
+        [this](ocpp::Call<ocpp::v16::DataTransferRequest> call) {
+            this->handle_data_transfer_rolec_trigger_message(call);
+        };
+    this->data_transfer_rolec_callbacks[conversions::messagetype_to_string(MessageType::CertificateSigned)] =
+        [this](ocpp::Call<ocpp::v16::DataTransferRequest> call) {
+            this->handle_data_transfer_rolec_certificate_signed(call);
+        };
 
     // California pricing requirements
     // Only enable the callbacks if display cost and price is enabled in the configuration.
@@ -2184,6 +2195,16 @@ void ChargePointImpl::handleDataTransferRequest(ocpp::Call<DataTransferRequest> 
                 << messageId;
             response.status = DataTransferStatus::UnknownMessageId;
 
+        } else if (vendorId == ROLEC_VENDOR_ID) {
+            // Rolec DataTransfer callbacks - handle ExtendedTriggerMessage, CertificateSigned
+            if (this->data_transfer_rolec_callbacks.count(messageId) != 0) {
+                const auto callback = this->data_transfer_rolec_callbacks[messageId];
+                callback(call);
+                return;
+            }
+            EVLOG_warning << "Received DataTransfer.req for Rolec but no handler found for: " << messageId;
+            response.status = DataTransferStatus::UnknownMessageId;
+
         } else if (this->data_transfer_callbacks.count(vendorId) == 0) {
             response.status = DataTransferStatus::UnknownVendorId;
         } else if ((this->data_transfer_callbacks.count(vendorId) != 0) and
@@ -2910,6 +2931,8 @@ void ChargePointImpl::sign_certificate(const ocpp::CertificateSigningUseEnum& ce
         use_tpm = this->configuration.getUseTPM();
     } else if (certificate_signing_use == CertificateSigningUseEnum::V2GCertificate) {
         use_tpm = this->configuration.getUseTPMSeccLeafCertificate();
+    } else if (certificate_signing_use == CertificateSigningUseEnum::RemoteCertificate) {
+        use_tpm = false; // Remote certificates do not use TPM
     }
 
     EVLOG_info << "Create CSR (TPM=" << use_tpm << ")";
@@ -2971,6 +2994,11 @@ void ChargePointImpl::update_ocsp_cache() {
 void ChargePointImpl::handleCertificateSignedRequest(ocpp::Call<CertificateSignedRequest> call) {
     EVLOG_debug << "Received CertificateSignedRequest: " << call.msg << "\nwith messageId: " << call.uniqueId;
 
+    // Capture the pending certificate type BEFORE resetting state: the awaited enum tells us
+    // which leaf (CSMS / V2G / REMOTE) this signed chain belongs to.
+    const auto certificate_signing_use =
+        this->awaited_certificate_signing_use_enum.value_or(CertificateSigningUseEnum::ChargingStationCertificate);
+
     // CSMS delivered the signed certificate — cancel any pending retry timer and reset state.
     this->reset_certificate_signing_state();
 
@@ -2979,9 +3007,7 @@ void ChargePointImpl::handleCertificateSignedRequest(ocpp::Call<CertificateSigne
 
     const auto certificateChain = call.msg.certificateChain.get();
 
-    // TODO(piet): Choose the right sign use enum!
-    const auto result = this->evse_security->update_leaf_certificate(
-        certificateChain, ocpp::CertificateSigningUseEnum::ChargingStationCertificate);
+    const auto result = this->evse_security->update_leaf_certificate(certificateChain, certificate_signing_use);
     if (result == ocpp::InstallCertificateResult::Accepted) {
         response.status = CertificateSignedStatusEnumType::Accepted;
     }
@@ -3050,6 +3076,9 @@ void ChargePointImpl::arm_certificate_signed_timer(const ocpp::CertificateSignin
             if (certificate_signing_use == ocpp::CertificateSigningUseEnum::V2GCertificate) {
                 // ISO15118 V2G certificates are requested via the DataTransfer-wrapped PnC path.
                 this->data_transfer_pnc_sign_certificate();
+            } else if (certificate_signing_use == ocpp::CertificateSigningUseEnum::RemoteCertificate) {
+                // Rolec REMOTE certificates are requested via the DataTransfer-wrapped Rolec path.
+                this->data_transfer_rolec_sign_certificate();
             } else {
                 // ChargingStationCertificate (CSMS client/leaf) uses the native SignCertificate.req path.
                 this->sign_certificate(certificate_signing_use);
@@ -4354,6 +4383,154 @@ void ChargePointImpl::handle_data_transfer_pnc_get_installed_certificates(Call<D
 
     const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
     this->message_dispatcher->dispatch_call_result(call_result);
+}
+
+void ChargePointImpl::data_transfer_rolec_sign_certificate() {
+
+    if (this->awaited_certificate_signing_use_enum.has_value()) {
+        EVLOG_warning << "Not sending new SignCertificate.req (DataTransfer) because still waiting for "
+                         "CertificateSigned.req from CSMS";
+        return;
+    }
+
+    if (!this->configuration.getCpoName().has_value()) {
+        EVLOG_warning << "Can not request new RemoteCertificate because CpoName is not set.";
+        return;
+    }
+
+    DataTransferRequest req;
+    req.vendorId = ROLEC_VENDOR_ID;
+    req.messageId.emplace(CiString<50>(std::string("SignCertificate")));
+
+    ocpp::v2::SignCertificateRequest csr_req;
+
+    const auto result = this->evse_security->generate_certificate_signing_request(
+        ocpp::CertificateSigningUseEnum::RemoteCertificate, this->configuration.getSeccLeafSubjectCountry().value_or("DE"),
+        this->configuration.getCpoName().value(),
+        this->configuration.getSeccLeafSubjectCommonName().value_or(this->configuration.getChargeBoxSerialNumber()),
+        false);
+
+    if (result.status != GetCertificateSignRequestStatus::Accepted || !result.csr.has_value()) {
+        EVLOG_error << "Could not request new RemoteCertificate, because the CSR was not successful.";
+
+        std::string gen_error = "Data transfer rolec csr failed due to:" +
+                                ocpp::conversions::generate_certificate_signing_request_status_to_string(result.status);
+        this->securityEventNotification(ocpp::security_events::CSRGENERATIONFAILED,
+                                        std::optional<CiString<255>>(gen_error), true);
+
+        return;
+    }
+
+    csr_req.csr = result.csr.value();
+    // certificateType is left unset: the v2.0.1 enum has no REMOTE value, the CSMS infers the
+    // certificate purpose from the Rolec DataTransfer vendorId/messageId.
+    req.data.emplace(json(csr_req).dump());
+
+    this->awaited_certificate_signing_use_enum = ocpp::CertificateSigningUseEnum::RemoteCertificate;
+
+    // Dispatch asynchronously so we never block the calling (timer/handler) thread waiting on the CSMS. The
+    // DataTransfer.conf is not inspected here; instead the retry timer below governs whether we resend the CSR.
+    const Call<DataTransferRequest> call(req);
+    this->message_dispatcher->dispatch_call_async(call);
+
+    // Arm the retry timer in case the CSMS accepts the DataTransfer(SignCertificate) but never delivers a
+    // DataTransfer(CertificateSigned).
+    this->arm_certificate_signed_timer(ocpp::CertificateSigningUseEnum::RemoteCertificate);
+}
+
+void ChargePointImpl::handle_data_transfer_rolec_trigger_message(Call<DataTransferRequest> call) {
+    EVLOG_info << "Received Rolec Data Transfer TriggerMessage: " << call.msg
+               << "\nwith messageId: " << call.uniqueId;
+
+    DataTransferResponse response;
+
+    if (this->configuration.getCpoName().has_value()) {
+        response.status = DataTransferStatus::Accepted;
+        ocpp::v2::TriggerMessageResponse trigger_message_response;
+        trigger_message_response.status = ocpp::v2::TriggerMessageStatusEnum::Accepted;
+        response.data.emplace(json(trigger_message_response).dump());
+    } else {
+        EVLOG_warning << "Received Rolec Data Transfer TriggerMessage to trigger CSR but no CpoName is set.";
+        response.status = DataTransferStatus::Rejected;
+        response.data.emplace("No CpoName is set. Cannot trigger CSR");
+    }
+
+    const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
+    this->message_dispatcher->dispatch_call_result(call_result);
+
+    if (response.status == DataTransferStatus::Accepted) {
+        // CSMS-initiated trigger takes priority over any in-flight retry: start a fresh signing sequence.
+        this->reset_certificate_signing_state();
+        // send sign certificate wrapped in data_transfer for REMOTE leaf
+        this->data_transfer_rolec_sign_certificate();
+    }
+}
+
+void ChargePointImpl::handle_data_transfer_rolec_certificate_signed(Call<DataTransferRequest> call) {
+    EVLOG_info << "Received Rolec Data Transfer CertificateSigned: " << call.msg
+               << "\nwith messageId: " << call.uniqueId;
+
+    // CSMS delivered the signed REMOTE certificate — cancel any pending retry timer and reset state.
+    this->reset_certificate_signing_state();
+
+    DataTransferResponse response;
+    response.status = DataTransferStatus::Rejected;
+
+    std::string tech_info;
+
+    try {
+        if (not call.msg.data.has_value()) {
+            throw std::runtime_error("Could not parse message, data is missing");
+        }
+
+        // Parse the v2 CertificateSignedRequest from the DataTransfer data
+        const ocpp::v2::CertificateSignedRequest req = json::parse(call.msg.data.value());
+
+        response.status = DataTransferStatus::Accepted;
+
+        CertificateSignedResponse certificate_response;
+        certificate_response.status = CertificateSignedStatusEnumType::Rejected;
+
+        const auto result = this->evse_security->update_leaf_certificate(
+            req.certificateChain.get(),
+            ocpp::CertificateSigningUseEnum::RemoteCertificate);
+
+        if (result == ocpp::InstallCertificateResult::Accepted) {
+            certificate_response.status = CertificateSignedStatusEnumType::Accepted;
+        } else {
+            tech_info = ocpp::conversions::install_certificate_result_to_string(result);
+            EVLOG_warning << tech_info;
+        }
+
+        response.data.emplace(json(certificate_response).dump());
+
+        const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
+        this->message_dispatcher->dispatch_call_result(call_result);
+
+        if (certificate_response.status == CertificateSignedStatusEnumType::Rejected) {
+            this->securityEventNotification(
+                ocpp::security_events::INVALIDCHARGEPOINTCERTIFICATE,
+                std::optional<CiString<255>>(tech_info),
+                true);
+        } else {
+            // The new certificate was installed successfully.
+            // If necessary, refresh OCSP state here.
+        }
+
+    } catch (const json::exception& e) {
+        EVLOG_warning << "Could not parse Rolec CertificateSigned data: " << e.what();
+
+        const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
+        this->message_dispatcher->dispatch_call_result(call_result);
+
+    } catch (const std::exception& e) {
+        EVLOG_error << "Error processing Rolec CertificateSigned: " << e.what();
+
+        tech_info = e.what();
+
+        const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
+        this->message_dispatcher->dispatch_call_result(call_result);
+    }
 }
 
 void ChargePointImpl::handle_data_transfer_delete_certificate(Call<DataTransferRequest> call) {

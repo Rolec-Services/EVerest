@@ -149,6 +149,7 @@ private:
         data_transfer_callbacks;
     std::function<DataTransferResponse(const DataTransferRequest& request)> data_transfer_callback;
     std::map<std::string, std::function<void(Call<DataTransferRequest> call)>> data_transfer_pnc_callbacks;
+    std::map<std::string, std::function<void(Call<DataTransferRequest> call)>> data_transfer_rolec_callbacks;
     std::mutex data_transfer_callbacks_mutex;
     std::map<CiString<50>, std::function<void(const KeyValue& key_value)>> configuration_key_changed_callbacks;
     std::function<void(const KeyValue& key_value)> generic_configuration_key_changed_callback;
@@ -349,6 +350,9 @@ private:
     void handle_data_transfer_pnc_get_installed_certificates(Call<DataTransferRequest> call);
     void handle_data_transfer_delete_certificate(Call<DataTransferRequest> call);
     void handle_data_transfer_install_certificate(Call<DataTransferRequest> call);
+    void handle_data_transfer_rolec_trigger_message(Call<DataTransferRequest> call);
+    void data_transfer_rolec_sign_certificate();
+    void handle_data_transfer_rolec_certificate_signed(Call<DataTransferRequest> call);
 
     /// \brief ReserveNow.req(connectorId, expiryDate, idTag, reservationId, [parentIdTag]): tries to perform the
     /// reservation and sends a reservation response. The reservation response: ReserveNow::Status
