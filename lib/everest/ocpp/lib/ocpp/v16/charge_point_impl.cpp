@@ -234,6 +234,18 @@ ChargePointImpl::ChargePointImpl(ChargePointConfigurationInterface& cfg, const f
         [this](ocpp::Call<ocpp::v16::DataTransferRequest> call) {
             this->handle_data_transfer_rolec_certificate_signed(call);
         };
+    this->data_transfer_rolec_callbacks[conversions::messagetype_to_string(MessageType::InstallCertificate)] =
+        [this](ocpp::Call<ocpp::v16::DataTransferRequest> call) {
+            this->handle_data_transfer_rolec_install_certificate(call);
+        };
+    this->data_transfer_rolec_callbacks[conversions::messagetype_to_string(MessageType::DeleteCertificate)] =
+        [this](ocpp::Call<ocpp::v16::DataTransferRequest> call) {
+            this->handle_data_transfer_delete_certificate(call);
+        };
+    this->data_transfer_rolec_callbacks[conversions::messagetype_to_string(MessageType::GetInstalledCertificateIds)] =
+        [this](ocpp::Call<ocpp::v16::DataTransferRequest> call) {
+            this->handle_data_transfer_rolec_get_installed_certificates(call);
+        };
 
     // California pricing requirements
     // Only enable the callbacks if display cost and price is enabled in the configuration.
@@ -4531,6 +4543,121 @@ void ChargePointImpl::handle_data_transfer_rolec_certificate_signed(Call<DataTra
         const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
         this->message_dispatcher->dispatch_call_result(call_result);
     }
+}
+
+void ChargePointImpl::handle_data_transfer_rolec_install_certificate(Call<DataTransferRequest> call) {
+    EVLOG_info << "Received Rolec Data Transfer InstallCertificate: " << call.msg
+               << "\nwith messageId: " << call.uniqueId;
+
+    DataTransferResponse response;
+    response.status = DataTransferStatus::Rejected;
+
+    if (call.msg.data.has_value()) {
+        try {
+            // The Rolec vendor channel implies a REMOTE root CA: the payload carries the
+            // certificate PEM only, there is no OCPP 2.0.1 certificateType for REMOTE.
+            const std::string certificate = json::parse(call.msg.data.value()).at("certificate").get<std::string>();
+
+            const auto result = this->evse_security->install_ca_certificate(
+                certificate, ocpp::CaCertificateType::REMOTE);
+
+            if (result == ocpp::InstallCertificateResult::Accepted) {
+                response.status = DataTransferStatus::Accepted;
+                response.data.emplace("Accepted");
+            } else {
+                EVLOG_warning << "Rolec InstallCertificate rejected: "
+                              << ocpp::conversions::install_certificate_result_to_string(result);
+                response.data.emplace(ocpp::conversions::install_certificate_result_to_string(result));
+            }
+        } catch (const json::exception& e) {
+            EVLOG_warning << "Could not parse data of DataTransfer message Rolec InstallCertificate: " << e.what();
+            response.status = DataTransferStatus::Rejected;
+        } catch (const std::exception& e) {
+            EVLOG_error << "Unknown Error while handling DataTransfer message Rolec InstallCertificate: " << e.what();
+            response.status = DataTransferStatus::Rejected;
+        }
+    }
+
+    const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
+    this->message_dispatcher->dispatch_call_result(call_result);
+}
+
+void ChargePointImpl::handle_data_transfer_rolec_get_installed_certificates(Call<DataTransferRequest> call) {
+    EVLOG_debug << "Received Rolec Data Transfer GetInstalledCertificateIds: " << call.msg
+                << "\nwith messageId: " << call.uniqueId;
+
+    DataTransferResponse response;
+    response.status = DataTransferStatus::Rejected;
+
+    try {
+        // The Rolec vendor channel is REMOTE specific. The request may carry an optional
+        // "certificateType" array with "REMOTERootCertificate" and/or "REMOTECertificateChain".
+        // When omitted, all REMOTE certificate types are requested.
+        std::vector<ocpp::CertificateType> certificate_types;
+        bool has_explicit_type = false;
+        if (call.msg.data.has_value()) {
+            const auto data = json::parse(call.msg.data.value());
+            if (data.contains("certificateType") && data.at("certificateType").is_array()) {
+                has_explicit_type = true;
+                for (const auto& entry : data.at("certificateType")) {
+                    const std::string type_str = entry.get<std::string>();
+                    if (type_str == "REMOTERootCertificate") {
+                        certificate_types.push_back(ocpp::CertificateType::REMOTERootCertificate);
+                    } else if (type_str == "REMOTECertificateChain") {
+                        certificate_types.push_back(ocpp::CertificateType::REMOTECertificateChain);
+                    }
+                }
+            }
+        }
+        if (!has_explicit_type || certificate_types.empty()) {
+            certificate_types.clear();
+            certificate_types.push_back(ocpp::CertificateType::REMOTERootCertificate);
+            certificate_types.push_back(ocpp::CertificateType::REMOTECertificateChain);
+        }
+
+        response.status = DataTransferStatus::Accepted;
+
+        const auto certificate_hash_data_chains =
+            this->evse_security->get_installed_certificates(certificate_types);
+
+        json certificate_hash_data_chain_json = json::array();
+        for (const auto& certificate_hash_data_chain : certificate_hash_data_chains) {
+            json chain_entry;
+            // REMOTE certificate types have no OCPP 2.0.1 representation, so the certificateType
+            // is carried as a string on the Rolec vendor channel.
+            chain_entry["certificateType"] =
+                ocpp::conversions::certificate_type_to_string(certificate_hash_data_chain.certificateType);
+            chain_entry["certificateHashData"] =
+                json(ocpp::evse_security_conversions::to_ocpp_v2(certificate_hash_data_chain.certificateHashData));
+            if (certificate_hash_data_chain.childCertificateHashData.has_value() &&
+                !certificate_hash_data_chain.childCertificateHashData.value().empty()) {
+                json children = json::array();
+                for (const auto& child : certificate_hash_data_chain.childCertificateHashData.value()) {
+                    children.push_back(json(ocpp::evse_security_conversions::to_ocpp_v2(child)));
+                }
+                chain_entry["childCertificateHashData"] = std::move(children);
+            }
+            certificate_hash_data_chain_json.push_back(std::move(chain_entry));
+        }
+
+        json get_certificate_ids_response;
+        get_certificate_ids_response["status"] =
+            certificate_hash_data_chain_json.empty() ? "NotFound" : "Accepted";
+        if (!certificate_hash_data_chain_json.empty()) {
+            get_certificate_ids_response["certificateHashDataChain"] = std::move(certificate_hash_data_chain_json);
+        }
+
+        response.data.emplace(get_certificate_ids_response.dump());
+    } catch (const json::exception& e) {
+        EVLOG_warning << "Could not parse data of DataTransfer message GetInstalledCertificateIds.req: " << e.what();
+        response.status = DataTransferStatus::Rejected;
+    } catch (const std::exception& e) {
+        EVLOG_error << "Unknown Error while handling DataTransfer message GetInstalledCertificateIds.req: " << e.what();
+        response.status = DataTransferStatus::Rejected;
+    }
+
+    const CallResult<DataTransferResponse> call_result(response, call.uniqueId);
+    this->message_dispatcher->dispatch_call_result(call_result);
 }
 
 void ChargePointImpl::handle_data_transfer_delete_certificate(Call<DataTransferRequest> call) {

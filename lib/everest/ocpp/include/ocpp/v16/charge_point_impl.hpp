@@ -353,6 +353,8 @@ private:
     void handle_data_transfer_rolec_trigger_message(Call<DataTransferRequest> call);
     void data_transfer_rolec_sign_certificate();
     void handle_data_transfer_rolec_certificate_signed(Call<DataTransferRequest> call);
+    void handle_data_transfer_rolec_install_certificate(Call<DataTransferRequest> call);
+    void handle_data_transfer_rolec_get_installed_certificates(Call<DataTransferRequest> call);
 
     /// \brief ReserveNow.req(connectorId, expiryDate, idTag, reservationId, [parentIdTag]): tries to perform the
     /// reservation and sends a reservation response. The reservation response: ReserveNow::Status
