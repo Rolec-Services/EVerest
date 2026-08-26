@@ -1164,6 +1164,8 @@ std::string certificate_type_to_string(CertificateType e) {
         return "OEMRootCertificate";
     case CertificateType::REMOTERootCertificate:
         return "REMOTERootCertificate";
+    case CertificateType::REMOTECertificateChain:
+        return "REMOTECertificateChain";
     }
 
     throw EnumToStringException{e, "CertificateType"};
@@ -1190,6 +1192,9 @@ CertificateType string_to_certificate_type(const std::string& s) {
     }
     if (s == "REMOTERootCertificate") {
         return CertificateType::REMOTERootCertificate;
+    }
+    if (s == "REMOTECertificateChain") {
+        return CertificateType::REMOTECertificateChain;
     }
 
     throw StringToEnumException{s, "CertificateType"};

@@ -34,6 +34,7 @@ types:
       - V2GCertificateChain
       - MFRootCertificate
       - REMOTERootCertificate
+      - REMOTECertificateChain
   HashAlgorithm:
     description: Enum specifies a hash algorithm
     type: string

@@ -83,6 +83,8 @@ std::string certificate_type_to_string(CertificateType e) {
         return "MFRootCertificate";
     case CertificateType::REMOTERootCertificate:
         return "REMOTERootCertificate";
+    case CertificateType::REMOTECertificateChain:
+        return "REMOTECertificateChain";
     default:
         throw std::out_of_range("Could not convert CertificateType to string");
     }

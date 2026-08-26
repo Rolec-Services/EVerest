@@ -588,6 +588,7 @@ enum class CertificateType {
     V2GCertificateChain,
     MFRootCertificate,
     REMOTERootCertificate,
+    REMOTECertificateChain,
     OEMRootCertificate,
 };
 

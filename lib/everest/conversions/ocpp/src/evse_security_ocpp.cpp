@@ -278,6 +278,8 @@ ocpp::CertificateType to_ocpp(types::evse_security::CertificateType other) {
         return ocpp::CertificateType::MFRootCertificate;
     case types::evse_security::CertificateType::REMOTERootCertificate:
         return ocpp::CertificateType::REMOTERootCertificate;
+    case types::evse_security::CertificateType::REMOTECertificateChain:
+        return ocpp::CertificateType::REMOTECertificateChain;
     }
     throw std::out_of_range("Could not convert types::evse_security::CertificateType to ocpp::CertificateType");
 }
@@ -517,6 +519,8 @@ types::evse_security::CertificateType from_ocpp(ocpp::CertificateType other) {
         return types::evse_security::CertificateType::MFRootCertificate;
     case ocpp::CertificateType::REMOTERootCertificate:
         return types::evse_security::CertificateType::REMOTERootCertificate;
+    case ocpp::CertificateType::REMOTECertificateChain:
+        return types::evse_security::CertificateType::REMOTECertificateChain;
     case ocpp::CertificateType::OEMRootCertificate:
         throw std::out_of_range("Could not convert ocpp::CertificateType::OEMRootCertificate to "
                                 "evse_security::CertificateType");

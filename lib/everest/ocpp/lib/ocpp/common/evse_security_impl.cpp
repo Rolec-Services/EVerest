@@ -215,6 +215,8 @@ CertificateType to_ocpp(evse_security::CertificateType other) {
         return CertificateType::MFRootCertificate;
     case evse_security::CertificateType::REMOTERootCertificate:
         return CertificateType::REMOTERootCertificate;
+    case evse_security::CertificateType::REMOTECertificateChain:
+        return CertificateType::REMOTECertificateChain;
     }
     throw EnumConversionException("Could not convert evse_security::CertificateType to CertificateType");
 }
@@ -436,6 +438,8 @@ evse_security::CertificateType from_ocpp(CertificateType other) {
         return evse_security::CertificateType::MFRootCertificate;
     case CertificateType::REMOTERootCertificate:
         return evse_security::CertificateType::REMOTERootCertificate;
+    case CertificateType::REMOTECertificateChain:
+        return evse_security::CertificateType::REMOTECertificateChain;
     case CertificateType::OEMRootCertificate:
         throw EnumConversionException(
             "Could not convert CertificateType::OEMRootCertificate to evse_security::CertificateType");

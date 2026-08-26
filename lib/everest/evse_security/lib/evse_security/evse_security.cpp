@@ -923,95 +923,110 @@ EvseSecurity::get_installed_certificates(const std::vector<CertificateType>& cer
         }
     }
 
-    // retrieve v2g certificate chain
-    if (std::find(certificate_types.begin(), certificate_types.end(), CertificateType::V2GCertificateChain) !=
-        certificate_types.end()) {
-        // Retrieve all valid leaf certificates, we will return
-        // multiple chains for each valid leaf that we find
-        CertificateQueryParams params;
-        params.certificate_type = LeafCertificateType::V2G;
-        params.include_all_valid = true;
-        params.remove_duplicates = true;
+    // retrieve the installed leaf certificate chains (V2G and REMOTE)
+    const auto retrieve_leaf_certificate_chains =
+        [this, &certificate_chains](const LeafCertificateType leaf_type, const CaCertificateType ca_type,
+                                    const CertificateType chain_type) {
+            // Retrieve all valid leaf certificates, we will return
+            // multiple chains for each valid leaf that we find
+            CertificateQueryParams params;
+            params.certificate_type = leaf_type;
+            params.include_all_valid = true;
+            params.remove_duplicates = true;
 
-        const GetCertificateFullInfoResult secc_key_pairs = get_full_leaf_certificate_info_internal(params);
+            const GetCertificateFullInfoResult leaf_key_pairs = get_full_leaf_certificate_info_internal(params);
 
-        if (secc_key_pairs.status == GetCertificateInfoStatus::Accepted) {
-            for (const auto& secc_key_pair : secc_key_pairs.info) {
-                fs::path certificate_path;
+            if (leaf_key_pairs.status == GetCertificateInfoStatus::Accepted) {
+                for (const auto& leaf_key_pair : leaf_key_pairs.info) {
+                    fs::path certificate_path;
 
-                if (secc_key_pair.certificate.has_value()) {
-                    certificate_path = secc_key_pair.certificate.value();
-                } else if (secc_key_pair.certificate_single.has_value()) {
-                    certificate_path = secc_key_pair.certificate_single.value();
-                } else {
-                    throw std::runtime_error("Leaf certificate single/bundle not present, should never happen!");
-                }
-
-                try {
-                    // Leaf V2G chain, containing (SECCLeaf->SubCA2->SubCA1) or (SECCLeaf)
-                    X509CertificateBundle leaf_bundle(certificate_path, EncodingFormat::PEM);
-
-                    // V2G chain, containing the certs from the V2G bundle/folder,
-                    // containing (SubCA2->SubCA1->V2GRoot) or (V2GRoot)
-                    const auto ca_bundle_path = this->ca_bundle_path_map.at(CaCertificateType::V2G);
-                    X509CertificateBundle ca_bundle(ca_bundle_path, EncodingFormat::PEM);
-
-                    // Merge the bundles, adding only uniques for full chain
-                    // (SubCA2->SubCA1->V2GRoot->SECCLeaf) in any order
-                    for (auto& certif : leaf_bundle.split()) {
-                        ca_bundle.add_certificate_unique(std::move(certif));
+                    if (leaf_key_pair.certificate.has_value()) {
+                        certificate_path = leaf_key_pair.certificate.value();
+                    } else if (leaf_key_pair.certificate_single.has_value()) {
+                        certificate_path = leaf_key_pair.certificate_single.value();
+                    } else {
+                        throw std::runtime_error("Leaf certificate single/bundle not present, should never happen!");
                     }
 
-                    // Create the proper certificate hierarchy since the bundle is not ordered
-                    X509CertificateHierarchy& hierarchy = ca_bundle.get_certificate_hierarchy();
-                    EVLOG_debug << "Hierarchy:(V2GCertificateChain)\n" << hierarchy.to_debug_string();
+                    try {
+                        // Leaf chain, e.g. (SECCLeaf->SubCA2->SubCA1) or (SECCLeaf)
+                        X509CertificateBundle leaf_bundle(certificate_path, EncodingFormat::PEM);
 
-                    for (auto& root : hierarchy.get_hierarchy()) {
-                        CertificateHashDataChain certificate_hash_data_chain;
-                        certificate_hash_data_chain.certificate_type = CertificateType::V2GCertificateChain;
+                        // Root chain, containing the certs from the bundle/folder,
+                        // e.g. (SubCA2->SubCA1->V2GRoot) or (V2GRoot)
+                        const auto ca_bundle_path = this->ca_bundle_path_map.at(ca_type);
+                        X509CertificateBundle ca_bundle(ca_bundle_path, EncodingFormat::PEM);
 
-                        // Since the hierarchy starts with V2G (Root) -> SubCa1->SubCa2 we have to reorder:
-                        // them with the leaf first when returning to:
-                        // * Leaf           [index 0]
-                        // --- SubCa2       [index 1]
-                        // --- SubCa1       [index 2]
-                        // --- --- V2GRoot  [index 3]
-                        std::vector<CertificateHashData> hierarchy_hash_data;
-
-                        // For each root's descendant, excluding the root
-                        X509CertificateHierarchy::for_each_descendant(
-                            [&](const X509Node& child, int /*depth*/) {
-                                if (child.hash.has_value()) {
-                                    hierarchy_hash_data.push_back(child.hash.value());
-                                }
-                            },
-                            root);
-
-                        // Now the hierarchy_hash_data contains SubCA1->SubCA2->SECCLeaf,
-                        // reverse order iteration to conform to the required leaf-first order
-                        if (!hierarchy_hash_data.empty()) {
-                            bool first_leaf = true;
-
-                            // Reverse iteration
-                            for (auto it = hierarchy_hash_data.rbegin(); it != hierarchy_hash_data.rend(); ++it) {
-                                if (first_leaf) {
-                                    // Leaf is the last
-                                    certificate_hash_data_chain.certificate_hash_data = *it;
-                                    first_leaf = false;
-                                } else {
-                                    certificate_hash_data_chain.child_certificate_hash_data.push_back(*it);
-                                }
-                            }
-
-                            // Add to our chains
-                            certificate_chains.push_back(certificate_hash_data_chain);
+                        // Merge the bundles, adding only uniques for full chain
+                        // (SubCA2->SubCA1->V2GRoot->SECCLeaf) in any order
+                        for (auto& certif : leaf_bundle.split()) {
+                            ca_bundle.add_certificate_unique(std::move(certif));
                         }
+
+                        // Create the proper certificate hierarchy since the bundle is not ordered
+                        X509CertificateHierarchy& hierarchy = ca_bundle.get_certificate_hierarchy();
+                        EVLOG_debug << "Hierarchy:" << conversions::certificate_type_to_string(chain_type) << "\n"
+                                    << hierarchy.to_debug_string();
+
+                        for (auto& root : hierarchy.get_hierarchy()) {
+                            CertificateHashDataChain certificate_hash_data_chain;
+                            certificate_hash_data_chain.certificate_type = chain_type;
+
+                            // Since the hierarchy starts with the root -> SubCa1->SubCa2 we have to reorder:
+                            // them with the leaf first when returning to:
+                            // * Leaf           [index 0]
+                            // --- SubCa2       [index 1]
+                            // --- SubCa1       [index 2]
+                            // --- --- Root     [index 3]
+                            std::vector<CertificateHashData> hierarchy_hash_data;
+
+                            // For each root's descendant, excluding the root
+                            X509CertificateHierarchy::for_each_descendant(
+                                [&](const X509Node& child, int /*depth*/) {
+                                    if (child.hash.has_value()) {
+                                        hierarchy_hash_data.push_back(child.hash.value());
+                                    }
+                                },
+                                root);
+
+                            // Now the hierarchy_hash_data contains SubCA1->SubCA2-><Leaf>,
+                            // reverse order iteration to conform to the required leaf-first order
+                            if (!hierarchy_hash_data.empty()) {
+                                bool first_leaf = true;
+
+                                // Reverse iteration
+                                for (auto it = hierarchy_hash_data.rbegin();
+                                     it != hierarchy_hash_data.rend(); ++it) {
+                                    if (first_leaf) {
+                                        // Leaf is the last
+                                        certificate_hash_data_chain.certificate_hash_data = *it;
+                                        first_leaf = false;
+                                    } else {
+                                        certificate_hash_data_chain.child_certificate_hash_data.push_back(*it);
+                                    }
+                                }
+
+                                // Add to our chains
+                                certificate_chains.push_back(certificate_hash_data_chain);
+                            }
+                        }
+                    } catch (const CertificateLoadException& e) {
+                        EVLOG_error << "Could not load installed leaf certificates: " << e.what();
                     }
-                } catch (const CertificateLoadException& e) {
-                    EVLOG_error << "Could not load installed leaf certificates: " << e.what();
                 }
             }
-        }
+        };
+
+    if (std::find(certificate_types.begin(), certificate_types.end(), CertificateType::V2GCertificateChain) !=
+        certificate_types.end()) {
+        retrieve_leaf_certificate_chains(LeafCertificateType::V2G, CaCertificateType::V2G,
+                                         CertificateType::V2GCertificateChain);
+    }
+
+    if (std::find(certificate_types.begin(), certificate_types.end(), CertificateType::REMOTECertificateChain) !=
+        certificate_types.end()) {
+        retrieve_leaf_certificate_chains(LeafCertificateType::REMOTE, CaCertificateType::REMOTE,
+                                         CertificateType::REMOTECertificateChain);
     }
 
     if (certificate_chains.empty()) {
@@ -1050,6 +1065,20 @@ int EvseSecurity::get_count_of_installed_certificates(const std::vector<Certific
     if (std::find(certificate_types.begin(), certificate_types.end(), CertificateType::V2GCertificateChain) !=
         certificate_types.end()) {
         auto leaf_dir = this->directories.secc_leaf_cert_directory;
+
+        // Load all from chain, including expired/unused
+        try {
+            const X509CertificateBundle leaf_bundle(leaf_dir, EncodingFormat::PEM);
+            count += leaf_bundle.get_certificate_count();
+        } catch (const CertificateLoadException& e) {
+            EVLOG_error << "Could not load bundle for certificate count: " << e.what();
+        }
+    }
+
+    // REMOTE Chain
+    if (std::find(certificate_types.begin(), certificate_types.end(), CertificateType::REMOTECertificateChain) !=
+        certificate_types.end()) {
+        auto leaf_dir = this->directories.remote_leaf_cert_directory;
 
         // Load all from chain, including expired/unused
         try {

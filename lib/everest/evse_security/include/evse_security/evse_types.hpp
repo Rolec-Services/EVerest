@@ -46,6 +46,7 @@ enum class CertificateType {
     V2GCertificateChain,
     MFRootCertificate,
     REMOTERootCertificate,
+    REMOTECertificateChain,
 };
 
 enum class HashAlgorithm {

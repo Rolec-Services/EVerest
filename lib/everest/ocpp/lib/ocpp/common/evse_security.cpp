@@ -25,6 +25,10 @@ ocpp::v2::GetCertificateIdUseEnum to_ocpp_v2(ocpp::CertificateType other) {
         // REMOTE certificates are an OCPP 1.6 only concept and have no OCPP 2.0.1 representation
         throw EnumConversionException("Could not convert CertificateType::REMOTERootCertificate to "
                                       "GetCertificateIdUseEnum");
+    case ocpp::CertificateType::REMOTECertificateChain:
+        // REMOTE certificates are an OCPP 1.6 only concept and have no OCPP 2.0.1 representation
+        throw EnumConversionException("Could not convert CertificateType::REMOTECertificateChain to "
+                                      "GetCertificateIdUseEnum");
     }
 
     throw EnumConversionException("Could not convert CertificateType to GetCertificateIdUseEnum");
