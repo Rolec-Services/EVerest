@@ -2944,7 +2944,7 @@ void ChargePointImpl::sign_certificate(const ocpp::CertificateSigningUseEnum& ce
     } else if (certificate_signing_use == CertificateSigningUseEnum::V2GCertificate) {
         use_tpm = this->configuration.getUseTPMSeccLeafCertificate();
     } else if (certificate_signing_use == CertificateSigningUseEnum::RemoteCertificate) {
-        use_tpm = false; // Remote certificates do not use TPM
+        use_tpm = true;
     }
 
     EVLOG_info << "Create CSR (TPM=" << use_tpm << ")";
