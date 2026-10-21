@@ -1,0 +1,19 @@
+description: Types for the HMI interface.
+types:
+  CameraConfig:
+    description: Camera configuration.
+    type: object
+    additionalProperties: false
+    properties:
+      fps:
+        description: Frames per second.
+        type: integer
+      width:
+        description: Frame width in pixels.
+        type: integer
+      height:
+        description: Frame height in pixels.
+        type: integer
+      jpeg_quality:
+        description: JPEG quality (1-100).
+        type: integer
