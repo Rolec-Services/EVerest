@@ -1,0 +1,30 @@
+description: Interface for controlling HMI button input and the camera.
+cmds:
+  button_press:
+    description: Simulate a physical button press (0-3). Module dispatches based on current state.
+    arguments:
+      button:
+        description: Button index (0-3)
+        type: integer
+  set_config:
+    description: Apply camera configuration. Takes effect on the next open() when the feed is off.
+    arguments:
+      config:
+        description: Camera configuration.
+        type: object
+        $ref: /hmi#/CameraConfig
+  set_feed:
+    description: Enable or disable the camera feed (start/stop streaming).
+    arguments:
+      enabled:
+        description: Whether the camera feed is enabled.
+        type: boolean
+  capture_frame:
+    description: Capture a single JPEG frame.
+    result:
+      description: Base64-encoded JPEG frame.
+      type: string
+vars:
+  frame:
+    description: Base64-encoded JPEG frame, published while the feed is enabled.
+    type: string
