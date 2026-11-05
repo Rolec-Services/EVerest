@@ -9,22 +9,46 @@ cmds:
   set_config:
     description: Apply camera configuration. Takes effect on the next open() when the feed is off.
     arguments:
+      camera_id:
+        description: Protocol id of the camera.
+        type: integer
       config:
         description: Camera configuration.
         type: object
         $ref: /hmi#/CameraConfig
+    result:
+      description: True when camera_id is present in the cameras module config.
+      type: boolean
   set_feed:
     description: Enable or disable the camera feed (start/stop streaming).
     arguments:
+      camera_id:
+        description: Protocol id of the camera.
+        type: integer
       enabled:
         description: Whether the camera feed is enabled.
         type: boolean
+    result:
+      description: True when camera_id is present in the cameras module config.
+      type: boolean
   capture_frame:
     description: Capture a single JPEG frame.
+    arguments:
+      camera_id:
+        description: Protocol id of the camera.
+        type: integer
     result:
-      description: Base64-encoded JPEG frame.
+      description: Base64-encoded JPEG frame. Empty when the camera id is unknown or capture fails.
       type: string
+  list_cameras:
+    description: Protocol ids configured in the cameras module config.
+    result:
+      description: Camera ids, in ascending order.
+      type: array
+      items:
+        type: integer
 vars:
   frame:
-    description: Base64-encoded JPEG frame, published while the feed is enabled.
-    type: string
+    description: JPEG frame published while a camera feed is enabled.
+    type: object
+    $ref: /hmi#/CameraFrame
